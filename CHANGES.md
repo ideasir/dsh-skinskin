@@ -133,3 +133,17 @@
 - tool-call: titleFs=10px summaryFs=10px svgW=8 ✅
 - command: titleFs=10px summaryFs=10px svgW=8 ✅
 - context: titleFs=10px svgW=8 ✅
+
+## 2026-08-30 — 简化：两类设置（回复信息 + 内部信息统一）
+
+### 结构简化
+- 去掉 thinking/tool 单独设置，去掉"总设置+单独设置"嵌套
+- 改为两类：① 回复信息（reply）② 内部信息（internal）—— 思考/工具/命令统一设置
+- 服务端 schema 从 4 个字段精简为 2 个（reply + internal）
+- 面板 UI 从 4 组精简为 2 组
+
+### 功能验证
+- 回复颜色 #22c55e 生效 ✅
+- 内部字号 12px 所有节点（reasoning/command/tool-call/context）整行+图标生效 ✅
+- CSS 逗号坑已确认修好 ✅
+- 样式自动注入 ✅

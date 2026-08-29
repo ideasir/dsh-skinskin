@@ -1,11 +1,8 @@
 /** dsh-skinskin — 前端文字皮肤定制
  *
- * 分两大类设置：
- *   ① 智能体回复用户（reply）—— assistant 正文
- *   ② 智能体内部（internal / thinking / tool）—— 思考、调用工具、读写文件等提示
- *      - internal：内部统一设置（一个样式套用到全部内部文字）
- *      - thinking：内部-思考（分开设置时用）
- *      - tool：内部-工具/命令/文件（分开设置时用）
+ * 分两类设置：
+ *   ① 回复信息（reply）—— 智能体真正回复用户的内容（assistant 正文）
+ *   ② 内部信息（internal）—— 思考过程、调用工具、执行命令等非最终回复内容（统一设置）
  *
  * 每个样式表单：颜色（色盘+自定义）/ 透明度（滑块）/ 字号（数字+上下箭头）/ 字体（预制下拉）/ 文字效果
  * 留空 = 使用 DSH 当前默认样式。总开关在卡片层（关 = 全部用默认）。
@@ -35,10 +32,8 @@ interface TextStyle {
 }
 
 interface SkinSettings {
-  reply: TextStyle      // ① 智能体回复用户
-  internal: TextStyle   // ② 智能体内部（统一）
-  thinking: TextStyle   // ②-1 思考（分开）
-  tool: TextStyle       // ②-2 工具/命令/文件（分开）
+  reply: TextStyle      // ① 回复信息
+  internal: TextStyle   // ② 内部信息（统一）
 }
 
 interface SettingsFace {
@@ -52,14 +47,12 @@ const DEFAULT_TEXT: TextStyle = { color: '', opacity: 1, size: 0, font: '', effe
 // ── DSH 默认值（深色主题实测，用于面板初始显示；留空 = 跟随主题变量）──
 const DEFAULTS: Record<string, { color: string; size: number; font: string }> = {
   reply: { color: '#f9fafb', size: 16, font: '系统默认' },
-  thinking: { color: '#adb2b8', size: 14, font: '系统默认' },
-  tool: { color: '#adb2b8', size: 14, font: '等宽字体' },
+  internal: { color: '#adb2b8', size: 14, font: '系统默认' },
 }
 
 // 分类的默认字号（步进基准）
 function defaultSizeFor(kind: string): number {
-  if (kind === 'internal') return DEFAULTS.thinking.size
-  return (DEFAULTS[kind] || DEFAULTS.thinking).size
+  return (DEFAULTS[kind] || DEFAULTS.internal).size
 }
 
 // ── 预制字体 ──────────────────────────────────────────
@@ -89,14 +82,10 @@ const EFFECT_OPTIONS: Array<{ value: string; label: string }> = [
 // 2026-08-30 主任反馈修正：样式要"按行生效"，作用到整个 flow item 节点，
 // 让该行内所有文字（标题/摘要）+ 图标统一缩放，而不是只改行内某段文字
 const SELECTORS: Record<keyof SkinSettings, string> = {
-  // 回复：assistant-step 整个节点（正文 markdown）
+  // ① 回复：assistant-step 整个节点（真正的回复正文）
   reply: `[data-chat-flow-kind="assistant-step"]`,
-  // 内部总设置：所有非最终回复的节点
+  // ② 内部：思考/工具/命令/上下文 等所有非最终回复节点（统一设置）
   internal: `[data-chat-flow-kind="reasoning"], [data-chat-flow-kind="command"], [data-chat-flow-kind="tool-call"], [data-chat-flow-kind="tool-result"], [data-chat-flow-kind="context"]`,
-  // 思考：reasoning 节点
-  thinking: `[data-chat-flow-kind="reasoning"]`,
-  // 工具/命令：command / tool-call / tool-result / context 节点
-  tool: `[data-chat-flow-kind="command"], [data-chat-flow-kind="tool-call"], [data-chat-flow-kind="tool-result"], [data-chat-flow-kind="context"]`,
 }
 
 // ── 样式注入 ──────────────────────────────────────────
@@ -118,6 +107,12 @@ function styleRule(selector: string, s: TextStyle): string | null {
     if (fx.includes('underline')) parts.push('text-decoration:underline !important')
   }
   return parts.length ? `${selector} { ${parts.join(';')} }` : null
+}
+
+// 判断某个 TextStyle 是否设置了任何项（非全空）
+function hasAnyStyle(s: TextStyle | undefined): boolean {
+  if (!s) return false
+  return !!(s.color || s.size > 0 || (s.font && s.font.trim() && s.font !== '系统默认') || s.effect || (s.opacity !== undefined && s.opacity !== 1))
 }
 
 function buildCss(settings: SkinSettings): string {
@@ -145,20 +140,10 @@ function buildCss(settings: SkinSettings): string {
 
   // ① 回复
   emit(SELECTORS.reply, settings?.reply)
-
-  // ② 内部：单独优先，单独没设回退总设置
-  const thinkingStyle = hasAnyStyle(settings?.thinking) ? settings.thinking : settings?.internal
-  const toolStyle = hasAnyStyle(settings?.tool) ? settings.tool : settings?.internal
-  emit(SELECTORS.thinking, thinkingStyle)
-  emit(SELECTORS.tool, toolStyle)
+  // ② 内部统一
+  emit(SELECTORS.internal, settings?.internal)
 
   return rules.join('\n')
-}
-
-// 判断某个 TextStyle 是否设置了任何项（非全空）
-function hasAnyStyle(s: TextStyle | undefined): boolean {
-  if (!s) return false
-  return !!(s.color || s.size > 0 || (s.font && s.font.trim() && s.font !== '系统默认') || s.effect || (s.opacity !== undefined && s.opacity !== 1))
 }
 
 function applySkin(settings: SkinSettings) {
@@ -192,7 +177,6 @@ const CARD_CSS = `
 .dsh-mm-master-label{font-size:13px;font-weight:500;color:var(--dsw-alias-label-primary)}
 .dsh-mm-master-note{font-size:11px;color:var(--dsw-alias-label-tertiary)}
 
-/* 样式设置弹窗 */
 /* 样式设置面板：右侧滑入，不遮背景，对话保持可见方便边调边看 */
 .dsh-skinskin-panel{position:fixed;top:0;right:0;z-index:2147483000;width:min(620px,78vw);height:100vh;overflow:auto;background:var(--dsw-alias-bg-layer-2,#1b1d20);border-left:1px solid var(--dsw-alias-border-l1);padding:18px 20px;box-shadow:-4px 0 20px rgba(0,0,0,.3);animation:dsh-skinskin-slide .18s ease-out}
 @keyframes dsh-skinskin-slide{from{transform:translateX(100%)}to{transform:none}}
@@ -220,24 +204,16 @@ const CARD_CSS = `
 .dsh-skinskin-hint{font-size:11px;color:var(--dsw-alias-label-tertiary)}
 .dsh-skinskin-reset{font-size:12px;color:var(--dsw-alias-label-secondary);background:none;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:5px 12px;cursor:pointer;transition:border-color .12s,color .12s}
 .dsh-skinskin-reset:hover{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
+.dsh-skinskin-sidebar-btn{width:24px;height:24px;margin-left:4px;flex:none;border-radius:8px;border:none;background:transparent;cursor:pointer;display:grid;place-items:center;color:var(--dsw-alias-label-tertiary,#999);transition:background .12s,color .12s}
+.dsh-skinskin-sidebar-btn:hover{background:var(--dsw-alias-bg-hover,#333);color:var(--dsw-alias-brand-primary,#4c78ff)}
 `
 
-// ── 全局状态（弹窗）──
-let modalOverlay: HTMLElement | null = null
+// ── 全局状态 ──
 let modalSettings: SkinSettings = {
   reply: { ...DEFAULT_TEXT },
   internal: { ...DEFAULT_TEXT },
-  thinking: { ...DEFAULT_TEXT },
-  tool: { ...DEFAULT_TEXT },
 }
 let modalSave: ((s: SkinSettings) => void) | null = null
-let modalClose: (() => void) | null = null
-
-function closeModal() {
-  document.querySelectorAll('.dsh-skinskin-overlay').forEach(el => el.remove())
-  modalOverlay = null
-  modalClose = null
-}
 
 // ── 卡片组件 ──────────────────────────────────────────
 function SkinPluginCard(props: CardProps) {
@@ -246,8 +222,6 @@ function SkinPluginCard(props: CardProps) {
   const [settings, setSettings] = useState<SkinSettings>({
     reply: { ...DEFAULT_TEXT },
     internal: { ...DEFAULT_TEXT },
-    thinking: { ...DEFAULT_TEXT },
-    tool: { ...DEFAULT_TEXT },
   })
   const [masterEnabled, setMasterEnabled] = useState(true)
 
@@ -261,11 +235,9 @@ function SkinPluginCard(props: CardProps) {
           const merged: SkinSettings = {
             reply: { ...DEFAULT_TEXT, ...(v.reply || {}) },
             internal: { ...DEFAULT_TEXT, ...(v.internal || {}) },
-            thinking: { ...DEFAULT_TEXT, ...(v.thinking || {}) },
-            tool: { ...DEFAULT_TEXT, ...(v.tool || {}) },
           }
           setSettings(merged)
-          applySkin(v.enabled === false ? { reply: { ...DEFAULT_TEXT }, internal: { ...DEFAULT_TEXT }, thinking: { ...DEFAULT_TEXT }, tool: { ...DEFAULT_TEXT } } : merged)
+          applySkin(v.enabled === false ? { reply: { ...DEFAULT_TEXT }, internal: { ...DEFAULT_TEXT } } : merged)
         }
       } catch { /* ignore */ }
     }
@@ -274,38 +246,32 @@ function SkinPluginCard(props: CardProps) {
     return () => { try { unsub?.() } catch { /* ignore */ } }
   }, [scope])
 
-  // 更新设置（保存 + 应用）
-  const save = (next: SkinSettings) => {
-    setSettings(next)
-    applySkin(next)
-    try {
-      void scope.set('reply' as never, next.reply as never)
-      void scope.set('internal' as never, next.internal as never)
-      void scope.set('thinking' as never, next.thinking as never)
-      void scope.set('tool' as never, next.tool as never)
-    } catch (e) { console.warn('[dsh-skinskin] 保存失败', e) }
-  }
-
   // 总开关
   const toggleMaster = () => {
     const next = !masterEnabled
     setMasterEnabled(next)
-    applySkin(next ? settings : { reply: { ...DEFAULT_TEXT }, internal: { ...DEFAULT_TEXT }, thinking: { ...DEFAULT_TEXT }, tool: { ...DEFAULT_TEXT } })
+    applySkin(next ? settings : { reply: { ...DEFAULT_TEXT }, internal: { ...DEFAULT_TEXT } })
     try {
       void scope.set('enabled' as never, next as never)
     } catch (e) { console.warn('[dsh-skinskin] 保存失败', e) }
   }
 
-  // 打开样式设置弹窗
+  // 打开样式设置面板
   const openModal = () => {
     modalSettings = JSON.parse(JSON.stringify(settings))
-    const overlay = document.createElement('div')
-    overlay.className = 'dsh-skinskin-overlay'
-    overlay.innerHTML = renderModal()
-    document.body.appendChild(overlay)
-    modalOverlay = overlay
-    modalSave = save
-    bindModalEvents(overlay)
+    const panel = document.createElement('div')
+    panel.className = 'dsh-skinskin-panel'
+    panel.innerHTML = renderModal()
+    document.body.appendChild(panel)
+    modalSave = (s: SkinSettings) => {
+      setSettings(s)
+      applySkin(s)
+      try {
+        void scope.set('reply' as never, s.reply as never)
+        void scope.set('internal' as never, s.internal as never)
+      } catch (e) { console.warn('[dsh-skinskin] 保存失败', e) }
+    }
+    bindPanelEvents(panel)
   }
 
   return (
@@ -318,7 +284,7 @@ function SkinPluginCard(props: CardProps) {
             </span>
             <span className="dsh-mm-version-badge">{VERSION}</span>
           </div>
-          <span className="dsh-mm-desc">修改对话记录的文字样式（颜色/透明度/字号/字体/效果），分「回复」和「内部」两大类</span>
+          <span className="dsh-mm-desc">修改对话记录的文字样式（颜色/透明度/字号/字体/效果），回复与内部信息分开设置</span>
         </span>
         <span className="dsh-mm-btns">
           <a className="dsh-mm-btn-link" href={REPO} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} title="打开 GitHub 仓库">ideasir</a>
@@ -374,12 +340,10 @@ function SkinPluginCard(props: CardProps) {
   )
 }
 
-// ── 弹窗渲染（右侧面板，不遮背景）──
-// 渲染单个样式表单（5 列：颜色/透明度/字号/字体/效果）
+// ── 面板渲染（右侧面板，不遮背景）──
 function renderForm(kind: string): string {
   const s = modalSettings[kind as keyof SkinSettings]
-  const opts = kind === 'internal' ? { color: '#adb2b8', size: 14, font: '系统默认' } : DEFAULTS[kind]
-  const def = opts || { color: '#adb2b8', size: 14, font: '系统默认' }
+  const def = DEFAULTS[kind] || DEFAULTS.internal
   // 字号输入框直接显示当前有效字号（未自定义 = 默认字号），方便以默认值为基准步进
   const effectiveSize = s.size > 0 ? s.size : def.size
   const sizeVal = String(effectiveSize)
@@ -431,49 +395,20 @@ function renderModal(): string {
       <h3>🎨 Skin Skin 样式设置</h3>
       <p class="sub">设置文字样式，留空 = 使用 DSH 默认。修改即时生效。</p>
 
-      <!-- ① 智能体回复用户 -->
-      <div class="dsh-skinskin-group">
+      <!-- ① 回复信息 -->
+      <div class="dsh-skinskin-group" style="border:2px solid var(--dsw-alias-brand-primary,#4c78ff)">
         <div class="dsh-skinskin-group-head">
-          <span class="dsh-skinskin-group-title">💬 ① 智能体回复用户 <span class="desc">assistant 正文回复</span></span>
+          <span class="dsh-skinskin-group-title">💬 ① 回复信息 <span class="desc">智能体真正回复用户的内容</span></span>
         </div>
         ${renderForm('reply')}
       </div>
 
-      <!-- ② 其他显示内容（大框） -->
-      <div class="dsh-skinskin-group" style="border:2px solid var(--dsw-alias-brand-primary,#4c78ff)">
+      <!-- ② 内部信息（统一设置） -->
+      <div class="dsh-skinskin-group">
         <div class="dsh-skinskin-group-head">
-          <span class="dsh-skinskin-group-title">🧠 ② 其他显示内容 <span class="desc">思考过程、调用工具、执行命令、读写文件等非最终回复内容</span></span>
+          <span class="dsh-skinskin-group-title">🧠 ② 内部信息 <span class="desc">思考过程、调用工具、执行命令等（统一设置）</span></span>
         </div>
-        <p style="font-size:11px;color:var(--dsw-alias-label-tertiary);margin:0 0 10px">总设置：作用于全部非回复内容。单独设置权重 > 总设置（设了单独就以单独为准）。</p>
-
-        <!-- 总设置 -->
-        <div style="border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:10px;margin-bottom:12px;background:var(--dsw-alias-bg-base)">
-          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)">
-            <span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:999px;background:var(--dsw-alias-brand-primary);color:#fff;font-size:11px;font-weight:700">总</span>
-            总设置（思考、工具、命令、文件等全部统一）
-          </div>
-          ${renderForm('internal')}
-        </div>
-
-        <!-- 单独设置 -->
-        <div style="border:1px dashed var(--dsw-alias-border-l2);border-radius:10px;padding:10px;background:var(--dsw-alias-bg-base)">
-          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)">
-            <span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:999px;background:var(--dsw-alias-label-tertiary);color:var(--dsw-alias-bg-base);font-size:11px;font-weight:700">单</span>
-            单独设置（可分别设置，优先级高于总设置）
-          </div>
-          <div class="dsh-skinskin-group" style="margin-bottom:8px">
-            <div class="dsh-skinskin-group-head">
-              <span class="dsh-skinskin-group-title">💭 思考过程</span>
-            </div>
-            ${renderForm('thinking')}
-          </div>
-          <div class="dsh-skinskin-group">
-            <div class="dsh-skinskin-group-head">
-              <span class="dsh-skinskin-group-title">⚙️ 调用工具 / 执行命令 / 读写文件</span>
-            </div>
-            ${renderForm('tool')}
-          </div>
-        </div>
+        ${renderForm('internal')}
       </div>
 
       <div class="dsh-skinskin-foot">
@@ -498,9 +433,7 @@ function bindPanelEvents(panel: HTMLElement) {
     const t = e.target as HTMLElement
     if (t.getAttribute('data-action') === 'close') { panel.remove(); document.removeEventListener('keydown', onKey) }
     if (t.getAttribute('data-action') === 'reset') {
-      modalSettings = {
-        reply: { ...DEFAULT_TEXT }, internal: { ...DEFAULT_TEXT }, thinking: { ...DEFAULT_TEXT }, tool: { ...DEFAULT_TEXT },
-      }
+      modalSettings = { reply: { ...DEFAULT_TEXT }, internal: { ...DEFAULT_TEXT } }
       if (modalSave) modalSave(modalSettings)
       panel.innerHTML = renderModal()
       return
@@ -510,7 +443,6 @@ function bindPanelEvents(panel: HTMLElement) {
       const kind = t.dataset.kind as keyof SkinSettings
       const step = Number(t.dataset.step) || 0
       const s = modalSettings[kind]
-      // 有效字号 = 已设置值，否则用该分类的默认字号
       const defSize = defaultSizeFor(kind)
       const cur = s.size > 0 ? s.size : defSize
       const next = Math.max(1, Math.min(40, cur + step))
@@ -603,11 +535,9 @@ export function apply(ctx: Context): void {
         settingsBtn.style.minWidth = '0'
       }
 
-      // 背景透明右侧面板
+      // 打开右侧面板
       const openPanel = () => {
-        // 移除旧面板
         document.querySelector('.dsh-skinskin-panel')?.remove()
-        // 读取当前设置（可能还在 loading，用当前已应用的值或默认）
         const snap = scope.getSnapshot()
         const cur = snap?.status === 'ready' && snap.value ? snap.value : {}
         modalSettings = JSON.parse(JSON.stringify(cur))
@@ -620,8 +550,6 @@ export function apply(ctx: Context): void {
             applySkin(s)
             void scope.set('reply' as never, s.reply as never)
             void scope.set('internal' as never, s.internal as never)
-            void scope.set('thinking' as never, s.thinking as never)
-            void scope.set('tool' as never, s.tool as never)
           } catch (e) { console.warn('[dsh-skinskin] 保存失败', e) }
         }
         bindPanelEvents(panel)
@@ -645,7 +573,6 @@ export function apply(ctx: Context): void {
   }, 'dsh-skinskin: sidebar button')
 
   // 应用已有样式：settingsScope 可能还在 loading，需要 立即读 + 订阅 + 重试
-  // （这是之前 NO STYLE 的根因：页面加载时 scope 未就绪，同步读返回 undefined）
   const applySaved = () => {
     try {
       const snap = scope.getSnapshot()
@@ -656,23 +583,18 @@ export function apply(ctx: Context): void {
     } catch { /* ignore */ }
     return false
   }
-  // 立即试一次
   applySaved()
-  // 订阅变化（设置保存后自动应用）
   const unsubApply = scope.subscribe?.(applySaved)
-  // 重试兜底（settingsScope 就绪有延迟）
   let retry = 0
   const retryTimer = setInterval(() => {
     retry++
     if (applySaved() || retry > 20) clearInterval(retryTimer)
   }, 500)
 
-  // 清理
   const disposers: Array<() => void> = []
   if (unsubApply) disposers.push(unsubApply)
   disposers.push(() => clearInterval(retryTimer))
   const unload = () => disposers.forEach(d => { try { d() } catch { /* ignore */ } })
-  // 插件卸载时清理
   try { ctx.on('dispose', unload) } catch { /* ignore */ }
 
   void api
