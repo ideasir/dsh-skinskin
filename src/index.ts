@@ -24,14 +24,16 @@ const TextStyle = Schema.object({
   font: Schema.string().default(''),
 })
 
-// 插件配置：三类文字各自独立样式
+// 插件配置：总开关 + 三类文字各自独立样式
 export const SkinConfig = Schema.object({
+  enabled: Schema.boolean().default(true),
   reasoning: TextStyle,
   command: TextStyle,
   reply: TextStyle,
 })
 
 const DEFAULT_CONFIG = {
+  enabled: true,
   reasoning: { enabled: false, color: '', size: 0, font: '' },
   command: { enabled: false, color: '', size: 0, font: '' },
   reply: { enabled: false, color: '', size: 0, font: '' },

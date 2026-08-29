@@ -19,3 +19,15 @@
 - schemastery 无 `.additionalProperties()`（zod API），去掉即可
 - @deepseek-ai 客户端包（slots/primitives）在插件仓库 node_modules，不在 DSH 全局；软链 dsh-makemake 的 node_modules
 - `data-chat-flow-kind` 是稳定锚点，用 `[class*="_body"]` 等后缀匹配防 hash 变化
+
+## 2026-08-29 — UI 规范化（主任审查修正）
+
+### 问题
+卡片又高又空：表单直接内联展开在卡片里，未按统一规范（其他插件是紧凑卡片头 + 大按钮 + 弹窗）。
+
+### 修正
+1. 卡片头与其他 ideasir 插件统一：dsh-mm-card 结构 + 图标 + 版本徽章 + ideasir/卸载/已最新 + 箭头
+2. 卡片展开内容：**总开关**（passpass 同款绿色开关）+ **样式设置大按钮**（主题色）
+3. 点击「样式设置」→ **弹窗**（DOM overlay，Esc/点遮罩关闭）内做三类文字 × 颜色/字号/字体 设置
+4. 服务端加总开关字段 `enabled`
+5. 样式即时生效（CSS 注入基于 data-chat-flow-kind 稳定属性）
