@@ -56,6 +56,12 @@ const DEFAULTS: Record<string, { color: string; size: number; font: string }> = 
   tool: { color: '#adb2b8', size: 14, font: '等宽字体' },
 }
 
+// 分类的默认字号（步进基准）
+function defaultSizeFor(kind: string): number {
+  if (kind === 'internal') return DEFAULTS.thinking.size
+  return (DEFAULTS[kind] || DEFAULTS.thinking).size
+}
+
 // ── 预制字体 ──────────────────────────────────────────
 const FONT_PRESETS = [
   '系统默认',
@@ -165,12 +171,13 @@ const CARD_CSS = `
 .dsh-mm-master-note{font-size:11px;color:var(--dsw-alias-label-tertiary)}
 
 /* 样式设置弹窗 */
-.dsh-skinskin-overlay{position:fixed;inset:0;z-index:2147483000;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;animation:dsh-skinskin-fadein .2s ease-out}
-@keyframes dsh-skinskin-fadein{from{opacity:0}to{opacity:1}}
-.dsh-skinskin-modal{width:min(720px,94vw);max-height:84vh;overflow:auto;background:var(--dsw-alias-bg-layer-2,#1b1d20);border:1px solid var(--dsw-alias-border-l1);border-radius:14px;padding:18px 20px;box-shadow:0 12px 40px rgba(0,0,0,.5);animation:dsh-skinskin-pop .18s ease-out}
-@keyframes dsh-skinskin-pop{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
-.dsh-skinskin-modal h3{margin:0 0 4px;font-size:16px;font-weight:600;color:var(--dsw-alias-label-primary)}
-.dsh-skinskin-modal .sub{margin:0 0 16px;font-size:12px;color:var(--dsw-alias-label-tertiary)}
+/* 样式设置面板：右侧滑入，不遮背景，对话保持可见方便边调边看 */
+.dsh-skinskin-panel{position:fixed;top:0;right:0;z-index:2147483000;width:min(620px,78vw);height:100vh;overflow:auto;background:var(--dsw-alias-bg-layer-2,#1b1d20);border-left:1px solid var(--dsw-alias-border-l1);padding:18px 20px;box-shadow:-4px 0 20px rgba(0,0,0,.3);animation:dsh-skinskin-slide .18s ease-out}
+@keyframes dsh-skinskin-slide{from{transform:translateX(100%)}to{transform:none}}
+.dsh-skinskin-panel h3{margin:0 0 4px;font-size:16px;font-weight:600;color:var(--dsw-alias-label-primary)}
+.dsh-skinskin-panel .sub{margin:0 0 16px;font-size:12px;color:var(--dsw-alias-label-tertiary)}
+.dsh-skinskin-panel .close-btn{position:absolute;top:14px;right:14px;width:28px;height:28px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);cursor:pointer;display:grid;place-items:center;font-size:16px;transition:background .12s,border-color .12s}
+.dsh-skinskin-panel .close-btn:hover{background:var(--dsw-alias-bg-hover);border-color:var(--dsw-alias-label-dimmed)}
 .dsh-skinskin-group{border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1);padding:12px;margin-bottom:12px}
 .dsh-skinskin-group-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
 .dsh-skinskin-group-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);display:flex;align-items:center;gap:6px}
@@ -345,13 +352,15 @@ function SkinPluginCard(props: CardProps) {
   )
 }
 
-// ── 弹窗渲染 ──────────────────────────────────────────
+// ── 弹窗渲染（右侧面板，不遮背景）──
 // 渲染单个样式表单（5 列：颜色/透明度/字号/字体/效果）
 function renderForm(kind: string): string {
   const s = modalSettings[kind as keyof SkinSettings]
   const opts = kind === 'internal' ? { color: '#adb2b8', size: 14, font: '系统默认' } : DEFAULTS[kind]
   const def = opts || { color: '#adb2b8', size: 14, font: '系统默认' }
-  const sizeVal = s.size || ''
+  // 字号输入框直接显示当前有效字号（未自定义 = 默认字号），方便以默认值为基准步进
+  const effectiveSize = s.size > 0 ? s.size : def.size
+  const sizeVal = String(effectiveSize)
   const opacityPct = Math.round((s.opacity ?? 1) * 100)
   return `
     <div class="dsh-skinskin-fields">
@@ -359,7 +368,7 @@ function renderForm(kind: string): string {
         <label>颜色</label>
         <div class="dsh-skinskin-color-row">
           <input type="color" data-field="color" data-kind="${kind}" value="${s.color || def.color}" />
-          <input type="text" data-field="color-text" data-kind="${kind}" value="${escapeAttr(s.color)}" placeholder="自定义（如 #f59e0b / rgb(...)）" />
+          <input type="text" data-field="color-text" data-kind="${kind}" value="${escapeAttr(s.color)}" placeholder="默认 ${def.color}" />
         </div>
       </div>
       <div class="dsh-skinskin-field">
@@ -395,7 +404,8 @@ function renderForm(kind: string): string {
 
 function renderModal(): string {
   return `
-    <div class="dsh-skinskin-modal" role="dialog" aria-label="样式设置">
+    <div class="dsh-skinskin-panel" role="dialog" aria-label="样式设置">
+      <button type="button" class="close-btn" data-action="close" title="关闭">✕</button>
       <h3>🎨 Skin Skin 样式设置</h3>
       <p class="sub">设置文字样式，留空 = 使用 DSH 默认。修改即时生效。</p>
 
@@ -445,7 +455,7 @@ function renderModal(): string {
       </div>
 
       <div class="dsh-skinskin-foot">
-        <span class="dsh-skinskin-hint">💡 修改即时生效。按 Esc 或点遮罩关闭。</span>
+        <span class="dsh-skinskin-hint">💡 修改即时生效。按 Esc 关闭。</span>
         <button type="button" data-action="reset" class="dsh-skinskin-reset">重置全部为默认</button>
         <button type="button" data-action="close" style="padding:8px 18px;border-radius:10px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);cursor:pointer;font-size:13px;font-weight:500">完成</button>
       </div>
@@ -457,41 +467,41 @@ function escapeAttr(s: string): string {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
 }
 
-// ── 弹窗事件绑定 ──────────────────────────────────────
-function bindModalEvents(overlay: HTMLElement) {
-  const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeModal() }
+// ── 右侧面板事件绑定 ──────────────────────────────────
+function bindPanelEvents(panel: HTMLElement) {
+  const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { panel.remove(); document.removeEventListener('keydown', onKey) } }
   document.addEventListener('keydown', onKey)
 
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) closeModal()
+  panel.addEventListener('click', (e) => {
     const t = e.target as HTMLElement
-    if (t.getAttribute('data-action') === 'close') closeModal()
+    if (t.getAttribute('data-action') === 'close') { panel.remove(); document.removeEventListener('keydown', onKey) }
     if (t.getAttribute('data-action') === 'reset') {
       modalSettings = {
         reply: { ...DEFAULT_TEXT }, internal: { ...DEFAULT_TEXT }, thinking: { ...DEFAULT_TEXT }, tool: { ...DEFAULT_TEXT },
       }
       if (modalSave) modalSave(modalSettings)
-      // 全量重渲染弹窗（重置后所有字段回到默认占位）
-      overlay.innerHTML = renderModal()
+      panel.innerHTML = renderModal()
       return
     }
-    // 字号步进
+    // 字号步进（基于有效字号：未自定义则用默认字号作基准）
     if (t.classList.contains('step')) {
       const kind = t.dataset.kind as keyof SkinSettings
       const step = Number(t.dataset.step) || 0
       const s = modalSettings[kind]
-      const cur = s.size || 0
-      const next = Math.max(0, Math.min(40, cur + step))
+      // 有效字号 = 已设置值，否则用该分类的默认字号
+      const defSize = defaultSizeFor(kind)
+      const cur = s.size > 0 ? s.size : defSize
+      const next = Math.max(1, Math.min(40, cur + step))
       s.size = next
       if (modalSave) modalSave(modalSettings)
-      const input = overlay.querySelector<HTMLInputElement>(`input[data-field="size"][data-kind="${kind}"]`)
-      if (input) input.value = next ? String(next) : ''
+      const input = panel.querySelector<HTMLInputElement>(`input[data-field="size"][data-kind="${kind}"]`)
+      if (input) input.value = String(next)
       return
     }
   })
 
   // 输入变化
-  overlay.addEventListener('input', (e) => {
+  panel.addEventListener('input', (e) => {
     const el = e.target as HTMLInputElement
     const kind = el.dataset.kind as keyof SkinSettings
     const field = el.dataset.field as string
@@ -499,17 +509,17 @@ function bindModalEvents(overlay: HTMLElement) {
     const s = modalSettings[kind]
     if (field === 'color') {
       s.color = el.value
-      const text = overlay.querySelector<HTMLInputElement>(`input[data-field="color-text"][data-kind="${kind}"]`)
+      const text = panel.querySelector<HTMLInputElement>(`input[data-field="color-text"][data-kind="${kind}"]`)
       if (text) text.value = el.value
     } else if (field === 'color-text') {
       s.color = el.value
-      const picker = overlay.querySelector<HTMLInputElement>(`input[data-field="color"][data-kind="${kind}"]`)
+      const picker = panel.querySelector<HTMLInputElement>(`input[data-field="color"][data-kind="${kind}"]`)
       if (picker && /^#[0-9a-fA-F]{6}$/.test(el.value)) picker.value = el.value
     } else if (field === 'size') {
       s.size = Number(el.value) || 0
     } else if (field === 'opacity') {
       s.opacity = Number(el.value) / 100
-      const val = overlay.querySelector<HTMLSpanElement>(`[data-opacity-val="${kind}"]`)
+      const val = panel.querySelector<HTMLSpanElement>(`[data-opacity-val="${kind}"]`)
       if (val) val.textContent = el.value + '%'
     } else if (field === 'font') {
       s.font = el.value === '系统默认' ? '' : el.value
@@ -518,20 +528,13 @@ function bindModalEvents(overlay: HTMLElement) {
     }
     if (modalSave) modalSave(modalSettings)
   })
-
-  // 清理事件
-  const observer = new MutationObserver(() => {
-    if (!document.body.contains(overlay)) {
-      document.removeEventListener('keydown', onKey)
-      observer.disconnect()
-    }
-  })
-  observer.observe(document.body, { childList: true })
 }
 
 // ── 图标（Lucide）──
 const SKIN_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z"/><path d="M3.6 9h16.8"/><path d="M3.6 15h16.8"/><path d="M12 3a15.5 15.5 0 0 1 0 18"/><path d="M12 3a15.5 15.5 0 0 0 0 18"/></svg>'
 const PALETTE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M12 22a10 10 0 1 1 10-10c0 2-1.5 3-3 3h-2.5a2.5 2.5 0 0 0-2 4c.5.8.2 3-2.5 3z"/><circle cx="7.5" cy="11.5" r="1"/><circle cx="11" cy="7.5" r="1"/><circle cx="15.5" cy="8.5" r="1"/></svg>'
+// 调节图标 — 侧边栏按钮用
+const ADJUST_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><circle cx="18" cy="5" r="3"/><path d="M18 8v14"/><circle cx="6" cy="12" r="3"/><path d="M6 15v7"/><path d="M6 2v7"/><path d="M18 2v2"/><circle cx="18" cy="19" r="3"/><path d="M18 22v1"/><path d="M6 12H2"/><path d="M22 5h-1"/></svg>'
 
 // ── 插件入口 ──────────────────────────────────────────
 export const inject = ['slots', 'connection', 'settingsScope'] as const
@@ -553,6 +556,70 @@ export function apply(ctx: Context): void {
     inject: (): SettingsFace => ({ scope }),
   }, SkinPluginCard))
 
+  // 侧边栏设置按钮（替换 passpass 小锁位置，点击打开右侧面板）
+  ctx.effect(() => {
+    const tryInject = () => {
+      const settingsArea = document.querySelector<HTMLElement>('[class*="hHd-Xa_settingsArea"]')
+      if (!settingsArea) return null
+
+      // 移除 passpass 的小锁（主任要求：小锁去掉，换成 SKIN 调节按钮）
+      document.querySelectorAll('.dsh-passpass-lock-btn').forEach(el => el.remove())
+
+      // 已注入过就跳过
+      if (settingsArea.querySelector('.dsh-skinskin-sidebar-btn')) return true
+
+      // 让 settingsArea 变成横向 flex
+      settingsArea.style.display = 'flex'
+      settingsArea.style.alignItems = 'center'
+      settingsArea.style.justifyContent = 'space-between'
+      settingsArea.style.width = '100%'
+
+      // 设置按钮宽度收缩
+      const settingsBtn = settingsArea.querySelector('button')
+      if (settingsBtn) {
+        settingsBtn.style.flex = '1'
+        settingsBtn.style.minWidth = '0'
+      }
+
+      // 背景透明右侧面板
+      const openPanel = () => {
+        // 移除旧面板
+        document.querySelector('.dsh-skinskin-panel')?.remove()
+        modalSettings = JSON.parse(JSON.stringify(scope.getSnapshot()?.value || {}))
+        const panel = document.createElement('div')
+        panel.className = 'dsh-skinskin-panel'
+        panel.innerHTML = renderModal()
+        document.body.appendChild(panel)
+        modalSave = (s: SkinSettings) => {
+          try {
+            applySkin(s)
+            void scope.set('reply' as never, s.reply as never)
+            void scope.set('internal' as never, s.internal as never)
+            void scope.set('thinking' as never, s.thinking as never)
+            void scope.set('tool' as never, s.tool as never)
+          } catch (e) { console.warn('[dsh-skinskin] 保存失败', e) }
+        }
+        bindPanelEvents(panel)
+      }
+
+      // 创建调节按钮
+      const btn = document.createElement('button')
+      btn.className = 'dsh-skinskin-sidebar-btn'
+      btn.title = '样式设置'
+      btn.innerHTML = ADJUST_SVG
+      btn.addEventListener('click', (e) => { e.stopPropagation(); openPanel() })
+
+      // 插入到 settingsArea 末尾
+      settingsArea.appendChild(btn)
+      return true
+    }
+
+    if (tryInject()) return
+    const timer = setInterval(() => { if (tryInject()) clearInterval(timer) }, 500)
+    return () => clearInterval(timer)
+  }, 'dsh-skinskin: sidebar button')
+
+  // 应用已有样式
   try {
     const v = scope.getSnapshot()?.value
     if (v) applySkin(v as SkinSettings)
