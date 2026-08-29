@@ -119,3 +119,17 @@
 - 字号输入框直接显示默认值（回复 16，内部/思考/工具 14）
 - 颜色 placeholder 显示默认色值（#f9fafb / #adb2b8）
 - 步进基于有效字号（未自定义 = 默认值作基准，从 16+1=17 开始，不是 0+1=1）
+
+## 2026-08-30 — 三个根因修复（整行生效 + 样式自动注入 + CSS 逗号坑）
+
+### 修复列表
+1. **样式按行生效**：选择器改为作用到整个 flow item 节点（`[data-chat-flow-kind="tool-call"]`），加 `*` 后代选择器强制所有子元素字号 + SVG 图标缩放
+2. **CSS 逗号坑**：`A, B *` 只有 `B` 被加 `*`——用 `each()` 函数逐项展开 `A *, B *`。实测：tool-call 标题/摘要 10px ✓，context 10px ✓，图标 8px ✓
+3. **样式自动注入（NO STYLE 根因）**：scope.getSnapshot() 在页面加载时 status=loading → value=undefined。改为"立即读 + 订阅变化 + 500ms 重试(最多 20 次)"，确保页面加载后自动应用已保存样式
+4. **openPanel 读取也做 status 检查**：snap?.status === 'ready' 时才读 value，否则用空对象
+
+### 验证
+- 注入的 CSS 不再是 NO STYLE ✅
+- tool-call: titleFs=10px summaryFs=10px svgW=8 ✅
+- command: titleFs=10px summaryFs=10px svgW=8 ✅
+- context: titleFs=10px svgW=8 ✅

@@ -85,13 +85,18 @@ const EFFECT_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'bold,underline', label: '粗体+下划线' },
 ]
 
-// ── CSS 选择器（基于 data-chat-flow-kind 稳定属性 + 实测 DOM 类后缀）──
-// 2026-08-30 实测修正：回复正文是 assistant-step（不是 text/assistant）
+// ── CSS 选择器（基于 data-chat-flow-kind 稳定属性，作用于整行节点）──
+// 2026-08-30 主任反馈修正：样式要"按行生效"，作用到整个 flow item 节点，
+// 让该行内所有文字（标题/摘要）+ 图标统一缩放，而不是只改行内某段文字
 const SELECTORS: Record<keyof SkinSettings, string> = {
-  reply: `[data-chat-flow-kind="assistant-step"] [class*="_markdown"]`,
-  internal: `[data-chat-flow-kind="reasoning"] [class*="_thinkBody"], [data-chat-flow-kind="command"] [class*="_summary"], [data-chat-flow-kind="command"] [class*="_body"], [data-chat-flow-kind="tool-call"] [class*="_summary"], [data-chat-flow-kind="tool-call"] [class*="_body"], [data-chat-flow-kind="tool-result"] [class*="_summary"], [data-chat-flow-kind="tool-result"] [class*="_body"]`,
-  thinking: `[data-chat-flow-kind="reasoning"] [class*="_thinkBody"], [data-chat-flow-kind="reasoning"] [class*="_summary"]`,
-  tool: `[data-chat-flow-kind="command"] [class*="_summary"], [data-chat-flow-kind="command"] [class*="_body"], [data-chat-flow-kind="tool-call"] [class*="_summary"], [data-chat-flow-kind="tool-call"] [class*="_body"], [data-chat-flow-kind="tool-result"] [class*="_summary"], [data-chat-flow-kind="tool-result"] [class*="_body"]`,
+  // 回复：assistant-step 整个节点（正文 markdown）
+  reply: `[data-chat-flow-kind="assistant-step"]`,
+  // 内部总设置：所有非最终回复的节点
+  internal: `[data-chat-flow-kind="reasoning"], [data-chat-flow-kind="command"], [data-chat-flow-kind="tool-call"], [data-chat-flow-kind="tool-result"], [data-chat-flow-kind="context"]`,
+  // 思考：reasoning 节点
+  thinking: `[data-chat-flow-kind="reasoning"]`,
+  // 工具/命令：command / tool-call / tool-result / context 节点
+  tool: `[data-chat-flow-kind="command"], [data-chat-flow-kind="tool-call"], [data-chat-flow-kind="tool-result"], [data-chat-flow-kind="context"]`,
 }
 
 // ── 样式注入 ──────────────────────────────────────────
@@ -117,18 +122,35 @@ function styleRule(selector: string, s: TextStyle): string | null {
 
 function buildCss(settings: SkinSettings): string {
   const rules: string[] = []
-  const r = styleRule(SELECTORS.reply, settings?.reply)
-  if (r) rules.push(r)
+  // 把逗号分隔的多选择器列表逐个加后缀（A, B, C * 只匹配 C 的后代——CSS 坑）
+  const each = (selector: string, suffix: string): string =>
+    selector.split(',').map(s => s.trim() + suffix).join(', ')
+  // 对每个 kind 生成：主规则（整行节点）+ 子元素强制 + SVG 图标缩放
+  const emit = (selector: string, style: TextStyle | undefined) => {
+    if (!style) return
+    const main = styleRule(selector, style)
+    if (!main) return
+    rules.push(main)
+    // 整行生效：所有后代文本也应用字号（子元素自带 font-size 会覆盖继承值）
+    if (style.size > 0) {
+      rules.push(`${each(selector, ' *')} { font-size:${style.size}px !important }`)
+      // SVG 图标随字号缩放
+      rules.push(`${each(selector, ' svg')} { width:${Math.round(style.size * 0.8)}px; height:${Math.round(style.size * 0.8)}px !important }`)
+    }
+    // 透明度整行生效
+    if (style.opacity !== undefined && style.opacity !== 1) {
+      rules.push(`${each(selector, ' *')} { opacity:${style.opacity} !important }`)
+    }
+  }
 
-  // ② 内部文字：单独设置优先，单独没设才用总设置
-  // 思考（thinking）和 工具（tool）各自的单独设置；单独为空 → 回退总设置 internal
+  // ① 回复
+  emit(SELECTORS.reply, settings?.reply)
+
+  // ② 内部：单独优先，单独没设回退总设置
   const thinkingStyle = hasAnyStyle(settings?.thinking) ? settings.thinking : settings?.internal
   const toolStyle = hasAnyStyle(settings?.tool) ? settings.tool : settings?.internal
-
-  const tr = styleRule(SELECTORS.thinking, thinkingStyle)
-  if (tr) rules.push(tr)
-  const tlr = styleRule(SELECTORS.tool, toolStyle)
-  if (tlr) rules.push(tlr)
+  emit(SELECTORS.thinking, thinkingStyle)
+  emit(SELECTORS.tool, toolStyle)
 
   return rules.join('\n')
 }
@@ -585,7 +607,10 @@ export function apply(ctx: Context): void {
       const openPanel = () => {
         // 移除旧面板
         document.querySelector('.dsh-skinskin-panel')?.remove()
-        modalSettings = JSON.parse(JSON.stringify(scope.getSnapshot()?.value || {}))
+        // 读取当前设置（可能还在 loading，用当前已应用的值或默认）
+        const snap = scope.getSnapshot()
+        const cur = snap?.status === 'ready' && snap.value ? snap.value : {}
+        modalSettings = JSON.parse(JSON.stringify(cur))
         const panel = document.createElement('div')
         panel.className = 'dsh-skinskin-panel'
         panel.innerHTML = renderModal()
@@ -619,11 +644,36 @@ export function apply(ctx: Context): void {
     return () => clearInterval(timer)
   }, 'dsh-skinskin: sidebar button')
 
-  // 应用已有样式
-  try {
-    const v = scope.getSnapshot()?.value
-    if (v) applySkin(v as SkinSettings)
-  } catch { /* ignore */ }
+  // 应用已有样式：settingsScope 可能还在 loading，需要 立即读 + 订阅 + 重试
+  // （这是之前 NO STYLE 的根因：页面加载时 scope 未就绪，同步读返回 undefined）
+  const applySaved = () => {
+    try {
+      const snap = scope.getSnapshot()
+      if (snap?.status === 'ready' && snap.value) {
+        applySkin(snap.value as SkinSettings)
+        return true
+      }
+    } catch { /* ignore */ }
+    return false
+  }
+  // 立即试一次
+  applySaved()
+  // 订阅变化（设置保存后自动应用）
+  const unsubApply = scope.subscribe?.(applySaved)
+  // 重试兜底（settingsScope 就绪有延迟）
+  let retry = 0
+  const retryTimer = setInterval(() => {
+    retry++
+    if (applySaved() || retry > 20) clearInterval(retryTimer)
+  }, 500)
+
+  // 清理
+  const disposers: Array<() => void> = []
+  if (unsubApply) disposers.push(unsubApply)
+  disposers.push(() => clearInterval(retryTimer))
+  const unload = () => disposers.forEach(d => { try { d() } catch { /* ignore */ } })
+  // 插件卸载时清理
+  try { ctx.on('dispose', unload) } catch { /* ignore */ }
 
   void api
 }
