@@ -79,12 +79,13 @@ const EFFECT_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'bold,underline', label: '粗体+下划线' },
 ]
 
-// ── CSS 选择器（基于 data-chat-flow-kind 稳定属性）──
+// ── CSS 选择器（基于 data-chat-flow-kind 稳定属性 + 实测 DOM 类后缀）──
+// 2026-08-30 实测修正：回复正文是 assistant-step（不是 text/assistant）
 const SELECTORS: Record<keyof SkinSettings, string> = {
-  reply: `[data-chat-flow-kind="text"] [class*="_content"], [data-chat-flow-kind="text"] [class*="_markdown"], [data-chat-flow-kind="assistant"] [class*="_content"], [data-chat-flow-kind="assistant"] [class*="_markdown"]`,
-  internal: `[data-chat-flow-kind="reasoning"] [class*="_thinkBody"], [data-chat-flow-kind="command"] [class*="_body"], [data-chat-flow-kind="command"] [class*="_summary"], [data-chat-flow-kind="tool-call"] [class*="_body"], [data-chat-flow-kind="tool-result"] [class*="_body"], [data-chat-flow-kind="file"] [class*="_body"], [data-chat-flow-kind="edit"] [class*="_body"], [data-chat-flow-kind="context"] [class*="_body"]`,
+  reply: `[data-chat-flow-kind="assistant-step"] [class*="_markdown"]`,
+  internal: `[data-chat-flow-kind="reasoning"] [class*="_thinkBody"], [data-chat-flow-kind="command"] [class*="_summary"], [data-chat-flow-kind="command"] [class*="_body"], [data-chat-flow-kind="tool-call"] [class*="_summary"], [data-chat-flow-kind="tool-call"] [class*="_body"], [data-chat-flow-kind="tool-result"] [class*="_summary"], [data-chat-flow-kind="tool-result"] [class*="_body"]`,
   thinking: `[data-chat-flow-kind="reasoning"] [class*="_thinkBody"], [data-chat-flow-kind="reasoning"] [class*="_summary"]`,
-  tool: `[data-chat-flow-kind="command"] [class*="_body"], [data-chat-flow-kind="command"] [class*="_summary"], [data-chat-flow-kind="tool-call"] [class*="_body"], [data-chat-flow-kind="tool-result"] [class*="_body"], [data-chat-flow-kind="file"] [class*="_body"], [data-chat-flow-kind="edit"] [class*="_body"], [data-chat-flow-kind="context"] [class*="_body"]`,
+  tool: `[data-chat-flow-kind="command"] [class*="_summary"], [data-chat-flow-kind="command"] [class*="_body"], [data-chat-flow-kind="tool-call"] [class*="_summary"], [data-chat-flow-kind="tool-call"] [class*="_body"], [data-chat-flow-kind="tool-result"] [class*="_summary"], [data-chat-flow-kind="tool-result"] [class*="_body"]`,
 }
 
 // ── 样式注入 ──────────────────────────────────────────
@@ -94,15 +95,16 @@ let styleEl: HTMLStyleElement | null = null
 function styleRule(selector: string, s: TextStyle): string | null {
   if (!s) return null
   const parts: string[] = []
-  if (s.color) parts.push(`color:${s.color}`)
-  if (s.opacity !== undefined && s.opacity !== 1) parts.push(`opacity:${s.opacity}`)
-  if (s.size > 0) parts.push(`font-size:${s.size}px`)
-  if (s.font && s.font.trim() && s.font !== '系统默认') parts.push(`font-family:"${s.font.trim()}"`)
+  // 用 !important 确保覆盖 DSH 内置样式（我们的 <style> 注入顺序不可控）
+  if (s.color) parts.push(`color:${s.color} !important`)
+  if (s.opacity !== undefined && s.opacity !== 1) parts.push(`opacity:${s.opacity} !important`)
+  if (s.size > 0) parts.push(`font-size:${s.size}px !important`)
+  if (s.font && s.font.trim() && s.font !== '系统默认') parts.push(`font-family:"${s.font.trim()}" !important`)
   if (s.effect) {
     const fx = s.effect.split(',')
-    if (fx.includes('bold')) parts.push('font-weight:700')
-    if (fx.includes('italic')) parts.push('font-style:italic')
-    if (fx.includes('underline')) parts.push('text-decoration:underline')
+    if (fx.includes('bold')) parts.push('font-weight:700 !important')
+    if (fx.includes('italic')) parts.push('font-style:italic !important')
+    if (fx.includes('underline')) parts.push('text-decoration:underline !important')
   }
   return parts.length ? `${selector} { ${parts.join(';')} }` : null
 }

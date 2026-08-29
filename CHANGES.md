@@ -81,3 +81,25 @@
 ### 验证
 - 构建通过、部署、DSH 重启正常
 - 产物含「其他显示内容/总设置/单独设置/智能体回复用户」结构
+
+## 2026-08-30 — 功能实现 + 真实 DOM 选择器修正 + 端到端验证
+
+### 功能实现
+- buildCss 按「单独 > 总」规则生成样式（thinking/tool 单独非空用单独，否则回退 internal）
+- styleRule 全部属性加 `!important`，确保覆盖 DSH 内置样式（注入顺序不可控）
+- 总开关（enabled）关闭时清空全部样式，恢复 DSH 默认
+
+### 选择器修正（Playwright 实测真实 DOM，之前源码猜测不准）
+| 类型 | 之前（错） | 实测（对） |
+|------|-----------|-----------|
+| 回复正文 | text/assistant | **assistant-step** 内 `[class*="_markdown"]` |
+| 工具调用 | tool-result | **tool-call** 内 `[class*="_summary"]` |
+| 命令 | command 内 `_body` | command 内 `_summary`（摘要） |
+- 思考文字保持 reasoning → `[class*="_thinkBody"]`
+
+### 端到端验证（无头 Chromium 实测）
+- 回复正文颜色：`rgb(249,250,251)` → 注入后 `rgb(245,158,11)`（橙色生效）✓
+- 回复字号：20px 生效 ✓
+- 工具调用 `_summary`：变绿 `rgb(34,197,94)` + 10px ✓
+- 命令 `_summary`：变蓝 `rgb(96,165,250)` ✓
+- 说明：`!important` 覆盖 DSH 默认样式成功，CSS 注入真实生效
