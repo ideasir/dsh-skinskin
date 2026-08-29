@@ -1,15 +1,14 @@
 /** dsh-skinskin — 前端文字皮肤定制
- * 修改 DSH 对话记录界面的文字样式（颜色/字号/字体），分类设置：
- *   - 思考文字（reasoning）：模型思考过程
- *   - 执行命令文字（command/tool）：工具调用、命令执行
- *   - 真实回复文字（reply）：assistant 正文回复
  *
- * 实现方式：把三类文字各自的 CSS 规则注入 <style>，选择器基于 DSH 前端的
- * data-chat-flow-kind 属性（稳定，不随 hash 类名变化）。
+ * 分两大类设置：
+ *   ① 智能体回复用户（reply）—— assistant 正文
+ *   ② 智能体内部（internal / thinking / tool）—— 思考、调用工具、读写文件等提示
+ *      - internal：内部统一设置（一个样式套用到全部内部文字）
+ *      - thinking：内部-思考（分开设置时用）
+ *      - tool：内部-工具/命令/文件（分开设置时用）
  *
- * UI 结构（与其他 ideasir 插件统一）：
- *   - 设置面板卡片：紧凑头（图标+标题+版本+描述+ideasir+卸载+已最新+智能检测+箭头）
- *   - 卡片展开后：一个大按钮「样式设置」→ 点开弹窗做详细设置
+ * 每个样式表单：颜色（色盘+自定义）/ 透明度（滑块）/ 字号（数字+上下箭头）/ 字体（预制下拉）/ 文字效果
+ * 留空 = 使用 DSH 当前默认样式。总开关在卡片层（关 = 全部用默认）。
  */
 
 import * as React from 'react'
@@ -20,7 +19,7 @@ import type { SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
-import { Button, IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 
 const SKIN_NAMESPACE = 'skinskin'
 const REPO = 'https://github.com/ideasir/dsh-skinskin'
@@ -28,16 +27,18 @@ const VERSION = '0829-0.1.0-rc.2'
 
 // ── 类型 ──────────────────────────────────────────────
 interface TextStyle {
-  enabled: boolean
-  color: string   // CSS 颜色（如 #f59e0b / rgb(...)）
-  size: number    // 字号 px
-  font: string    // 字体（如 'JetBrains Mono' / 'PingFang SC'）
+  color: string        // CSS 颜色；空 = DSH 默认
+  opacity: number      // 透明度 0-1；1 = 不透明
+  size: number         // 字号 px；0 = DSH 默认
+  font: string         // 字体；空 = DSH 默认
+  effect: string       // 文字效果：'' | 'bold' | 'italic' | 'underline' | 'bold,italic' ...
 }
 
 interface SkinSettings {
-  reasoning: TextStyle   // 思考文字
-  command: TextStyle     // 执行命令文字
-  reply: TextStyle       // 真实回复文字
+  reply: TextStyle      // ① 智能体回复用户
+  internal: TextStyle   // ② 智能体内部（统一）
+  thinking: TextStyle   // ②-1 思考（分开）
+  tool: TextStyle       // ②-2 工具/命令/文件（分开）
 }
 
 interface SettingsFace {
@@ -46,13 +47,44 @@ interface SettingsFace {
 
 type CardProps = PropsRuntime<'settings.plugin.item'> & InjectFace<SettingsFace>
 
-const DEFAULT_TEXT: TextStyle = { enabled: false, color: '', size: 0, font: '' }
+const DEFAULT_TEXT: TextStyle = { color: '', opacity: 1, size: 0, font: '', effect: '' }
 
-// ── 三类文字的 CSS 选择器（基于 DSH 前端 data-chat-flow-kind 稳定属性）──
+// ── DSH 默认值（深色主题实测，用于面板初始显示；留空 = 跟随主题变量）──
+const DEFAULTS: Record<string, { color: string; size: number; font: string }> = {
+  reply: { color: '#f9fafb', size: 16, font: '系统默认' },
+  thinking: { color: '#adb2b8', size: 14, font: '系统默认' },
+  tool: { color: '#adb2b8', size: 14, font: '等宽字体' },
+}
+
+// ── 预制字体 ──────────────────────────────────────────
+const FONT_PRESETS = [
+  '系统默认',
+  'PingFang SC',
+  'Microsoft YaHei',
+  'JetBrains Mono',
+  'Consolas',
+  'Menlo',
+  'monospace',
+  'serif',
+  'sans-serif',
+]
+
+// ── 文字效果选项 ──────────────────────────────────────
+const EFFECT_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: '', label: '无' },
+  { value: 'bold', label: '粗体' },
+  { value: 'italic', label: '斜体' },
+  { value: 'underline', label: '下划线' },
+  { value: 'bold,italic', label: '粗体+斜体' },
+  { value: 'bold,underline', label: '粗体+下划线' },
+]
+
+// ── CSS 选择器（基于 data-chat-flow-kind 稳定属性）──
 const SELECTORS: Record<keyof SkinSettings, string> = {
-  reasoning: `[data-chat-flow-kind="reasoning"] [class*="_thinkBody"]`,
-  command: `[data-chat-flow-kind="command"] [class*="_body"], [data-chat-flow-kind="command"] [class*="_summary"], [data-chat-flow-kind="tool-call"] [class*="_body"], [data-chat-flow-kind="tool-result"] [class*="_body"]`,
-  reply: `[data-chat-flow-kind="text"] [class*="_content"], [data-chat-flow-kind="text"] [class*="_markdown"], [data-chat-flow-kind="text"] [class*="_body"]`,
+  reply: `[data-chat-flow-kind="text"] [class*="_content"], [data-chat-flow-kind="text"] [class*="_markdown"], [data-chat-flow-kind="assistant"] [class*="_content"], [data-chat-flow-kind="assistant"] [class*="_markdown"]`,
+  internal: `[data-chat-flow-kind="reasoning"] [class*="_thinkBody"], [data-chat-flow-kind="command"] [class*="_body"], [data-chat-flow-kind="command"] [class*="_summary"], [data-chat-flow-kind="tool-call"] [class*="_body"], [data-chat-flow-kind="tool-result"] [class*="_body"], [data-chat-flow-kind="file"] [class*="_body"], [data-chat-flow-kind="edit"] [class*="_body"], [data-chat-flow-kind="context"] [class*="_body"]`,
+  thinking: `[data-chat-flow-kind="reasoning"] [class*="_thinkBody"], [data-chat-flow-kind="reasoning"] [class*="_summary"]`,
+  tool: `[data-chat-flow-kind="command"] [class*="_body"], [data-chat-flow-kind="command"] [class*="_summary"], [data-chat-flow-kind="tool-call"] [class*="_body"], [data-chat-flow-kind="tool-result"] [class*="_body"], [data-chat-flow-kind="file"] [class*="_body"], [data-chat-flow-kind="edit"] [class*="_body"], [data-chat-flow-kind="context"] [class*="_body"]`,
 }
 
 // ── 样式注入 ──────────────────────────────────────────
@@ -60,15 +92,45 @@ let styleEl: HTMLStyleElement | null = null
 
 function buildCss(settings: SkinSettings): string {
   const rules: string[] = []
-  ;(['reasoning', 'command', 'reply'] as const).forEach((kind) => {
+  // 内部统一设置（internal 生效时，thinking/tool 单独设置被覆盖）
+  const internalActive = settings.internal.color || settings.internal.size > 0 || settings.internal.font || settings.internal.effect || settings.internal.opacity !== 1
+
+  ;(['reply', 'thinking', 'tool'] as const).forEach((kind) => {
+    // 若 internal 已设置且是 thinking/tool → 跳过（由 internal 统一控制）
+    if (internalActive && kind !== 'reply') return
     const s = settings?.[kind]
-    if (!s?.enabled) return
+    if (!s) return
     const parts: string[] = []
     if (s.color) parts.push(`color:${s.color}`)
+    if (s.opacity !== undefined && s.opacity !== 1) parts.push(`opacity:${s.opacity}`)
     if (s.size > 0) parts.push(`font-size:${s.size}px`)
-    if (s.font && s.font.trim()) parts.push(`font-family:"${s.font.trim()}"`)
+    if (s.font && s.font.trim() && s.font !== '系统默认') parts.push(`font-family:"${s.font.trim()}"`)
+    if (s.effect) {
+      const fx = s.effect.split(',')
+      if (fx.includes('bold')) parts.push('font-weight:700')
+      if (fx.includes('italic')) parts.push('font-style:italic')
+      if (fx.includes('underline')) parts.push('text-decoration:underline')
+    }
     if (parts.length) rules.push(`${SELECTORS[kind]} { ${parts.join(';')} }`)
   })
+
+  // internal 统一设置（单独一条规则，覆盖 thinking/tool）
+  if (internalActive) {
+    const s = settings.internal
+    const parts: string[] = []
+    if (s.color) parts.push(`color:${s.color}`)
+    if (s.opacity !== undefined && s.opacity !== 1) parts.push(`opacity:${s.opacity}`)
+    if (s.size > 0) parts.push(`font-size:${s.size}px`)
+    if (s.font && s.font.trim() && s.font !== '系统默认') parts.push(`font-family:"${s.font.trim()}"`)
+    if (s.effect) {
+      const fx = s.effect.split(',')
+      if (fx.includes('bold')) parts.push('font-weight:700')
+      if (fx.includes('italic')) parts.push('font-style:italic')
+      if (fx.includes('underline')) parts.push('text-decoration:underline')
+    }
+    if (parts.length) rules.push(`${SELECTORS.internal} { ${parts.join(';')} }`)
+  }
+
   return rules.join('\n')
 }
 
@@ -97,14 +159,16 @@ const CARD_CSS = `
 .dsh-mm-btn-link{font-size:12px;line-height:18px;font-weight:500;color:var(--dsw-alias-label-secondary);text-decoration:none;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);border-radius:999px;padding:2px 10px;white-space:nowrap;transition:color .12s,border-color .12s,background .12s}
 .dsh-mm-btn-uninstall{font-size:12px;line-height:18px;font-weight:500;color:var(--dsw-alias-state-error-primary);background:var(--dsw-alias-bg-layer-1);border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary) 45%,transparent);border-radius:999px;padding:2px 10px;cursor:pointer;white-space:nowrap;transition:background .12s,border-color .12s}
 .dsh-mm-btn-update{font-size:12px;line-height:18px;font-weight:500;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);border-radius:999px;padding:2px 10px;cursor:pointer;white-space:nowrap;transition:background .12s,border-color .12s}
-.dsh-mm-btn-env{font-size:12px;line-height:18px}
 .dsh-mm-chevron{color:var(--dsw-alias-label-tertiary);transition:transform .14s ease-in-out;display:inline-flex}
 .dsh-mm-body{border-top:1px solid var(--dsw-alias-border-l2);padding:14px 14px 16px;background:var(--dsw-alias-bg-module-platform)}
+.dsh-mm-master{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.dsh-mm-master-label{font-size:13px;font-weight:500;color:var(--dsw-alias-label-primary)}
+.dsh-mm-master-note{font-size:11px;color:var(--dsw-alias-label-tertiary)}
 
 /* 样式设置弹窗 */
 .dsh-skinskin-overlay{position:fixed;inset:0;z-index:2147483000;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;animation:dsh-skinskin-fadein .2s ease-out}
 @keyframes dsh-skinskin-fadein{from{opacity:0}to{opacity:1}}
-.dsh-skinskin-modal{width:min(680px,92vw);max-height:82vh;overflow:auto;background:var(--dsw-alias-bg-layer-2,#1b1d20);border:1px solid var(--dsw-alias-border-l1);border-radius:14px;padding:18px 20px;box-shadow:0 12px 40px rgba(0,0,0,.5);animation:dsh-skinskin-pop .18s ease-out}
+.dsh-skinskin-modal{width:min(720px,94vw);max-height:84vh;overflow:auto;background:var(--dsw-alias-bg-layer-2,#1b1d20);border:1px solid var(--dsw-alias-border-l1);border-radius:14px;padding:18px 20px;box-shadow:0 12px 40px rgba(0,0,0,.5);animation:dsh-skinskin-pop .18s ease-out}
 @keyframes dsh-skinskin-pop{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
 .dsh-skinskin-modal h3{margin:0 0 4px;font-size:16px;font-weight:600;color:var(--dsw-alias-label-primary)}
 .dsh-skinskin-modal .sub{margin:0 0 16px;font-size:12px;color:var(--dsw-alias-label-tertiary)}
@@ -112,23 +176,31 @@ const CARD_CSS = `
 .dsh-skinskin-group-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
 .dsh-skinskin-group-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);display:flex;align-items:center;gap:6px}
 .dsh-skinskin-group-title .desc{font-size:11px;font-weight:400;color:var(--dsw-alias-label-tertiary)}
-.dsh-skinskin-toggle{display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--dsw-alias-label-secondary)}
-.dsh-skinskin-fields{display:grid;grid-template-columns:1fr 1fr 1.6fr;gap:10px}
+.dsh-skinskin-fields{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
 .dsh-skinskin-field label{display:block;font-size:11px;color:var(--dsw-alias-label-tertiary);margin-bottom:4px}
-.dsh-skinskin-field input[type=text],.dsh-skinskin-field input[type=number]{width:100%;padding:6px 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font-size:12px;box-sizing:border-box}
-.dsh-skinskin-field input:disabled{opacity:.4;cursor:not-allowed}
+.dsh-skinskin-field input[type=text],.dsh-skinskin-field input[type=number],.dsh-skinskin-field select{width:100%;padding:5px 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font-size:12px;box-sizing:border-box}
 .dsh-skinskin-color-row{display:flex;align-items:center;gap:6px}
 .dsh-skinskin-color-row input[type=color]{width:30px;height:30px;border:none;background:none;padding:0;cursor:pointer}
+.dsh-skinskin-size-row{display:flex;align-items:center;gap:2px}
+.dsh-skinskin-size-row input{flex:1;min-width:0;text-align:center}
+.dsh-skinskin-size-row .step{width:26px;height:28px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);border-radius:8px;cursor:pointer;font-size:14px;line-height:1;display:grid;place-items:center;transition:background .12s,border-color .12s}
+.dsh-skinskin-size-row .step:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
+.dsh-skinskin-opacity-row{display:flex;align-items:center;gap:8px}
+.dsh-skinskin-opacity-row input[type=range]{flex:1;min-width:0;accent-color:var(--dsw-alias-brand-primary,#4c78ff)}
+.dsh-skinskin-opacity-row .val{font-size:11px;color:var(--dsw-alias-label-secondary);width:34px;text-align:right;font-family:ui-monospace,Menlo,monospace}
 .dsh-skinskin-foot{display:flex;align-items:center;justify-content:space-between;margin-top:14px}
 .dsh-skinskin-hint{font-size:11px;color:var(--dsw-alias-label-tertiary)}
+.dsh-skinskin-reset{font-size:12px;color:var(--dsw-alias-label-secondary);background:none;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:5px 12px;cursor:pointer;transition:border-color .12s,color .12s}
+.dsh-skinskin-reset:hover{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
 `
 
 // ── 全局状态（弹窗）──
 let modalOverlay: HTMLElement | null = null
 let modalSettings: SkinSettings = {
-  reasoning: { ...DEFAULT_TEXT },
-  command: { ...DEFAULT_TEXT },
   reply: { ...DEFAULT_TEXT },
+  internal: { ...DEFAULT_TEXT },
+  thinking: { ...DEFAULT_TEXT },
+  tool: { ...DEFAULT_TEXT },
 }
 let modalSave: ((s: SkinSettings) => void) | null = null
 let modalClose: (() => void) | null = null
@@ -139,22 +211,15 @@ function closeModal() {
   modalClose = null
 }
 
-const PRESETS: Array<{ kind: keyof SkinSettings; label: string; icon: string; desc: string }> = [
-  { kind: 'reasoning', label: '思考文字', icon: '💭', desc: '模型思考过程' },
-  { kind: 'command', label: '执行命令', icon: '⚙️', desc: '工具调用 / 命令执行' },
-  { kind: 'reply', label: '真实回复', icon: '💬', desc: 'assistant 正文回复' },
-]
-
-const PALETTE = ['#f59e0b', '#22c55e', '#60a5fa', '#f472b6', '#a78bfa', '#f87171', '#ffffff', '#9ca3af']
-
-// ── 卡片组件（紧凑，与其他 ideasir 插件统一）──
+// ── 卡片组件 ──────────────────────────────────────────
 function SkinPluginCard(props: CardProps) {
   const [open, setOpen] = useState(false)
   const { scope } = props
   const [settings, setSettings] = useState<SkinSettings>({
-    reasoning: { ...DEFAULT_TEXT },
-    command: { ...DEFAULT_TEXT },
     reply: { ...DEFAULT_TEXT },
+    internal: { ...DEFAULT_TEXT },
+    thinking: { ...DEFAULT_TEXT },
+    tool: { ...DEFAULT_TEXT },
   })
   const [masterEnabled, setMasterEnabled] = useState(true)
 
@@ -166,12 +231,13 @@ function SkinPluginCard(props: CardProps) {
         if (v) {
           setMasterEnabled(v.enabled !== false)
           const merged: SkinSettings = {
-            reasoning: { ...DEFAULT_TEXT, ...(v.reasoning || {}) },
-            command: { ...DEFAULT_TEXT, ...(v.command || {}) },
             reply: { ...DEFAULT_TEXT, ...(v.reply || {}) },
+            internal: { ...DEFAULT_TEXT, ...(v.internal || {}) },
+            thinking: { ...DEFAULT_TEXT, ...(v.thinking || {}) },
+            tool: { ...DEFAULT_TEXT, ...(v.tool || {}) },
           }
           setSettings(merged)
-          applySkin(v.enabled === false ? { reasoning: { ...DEFAULT_TEXT, enabled: false }, command: { ...DEFAULT_TEXT, enabled: false }, reply: { ...DEFAULT_TEXT, enabled: false } } : merged)
+          applySkin(v.enabled === false ? { reply: { ...DEFAULT_TEXT }, internal: { ...DEFAULT_TEXT }, thinking: { ...DEFAULT_TEXT }, tool: { ...DEFAULT_TEXT } } : merged)
         }
       } catch { /* ignore */ }
     }
@@ -185,9 +251,10 @@ function SkinPluginCard(props: CardProps) {
     setSettings(next)
     applySkin(next)
     try {
-      void scope.set('reasoning' as never, next.reasoning as never)
-      void scope.set('command' as never, next.command as never)
       void scope.set('reply' as never, next.reply as never)
+      void scope.set('internal' as never, next.internal as never)
+      void scope.set('thinking' as never, next.thinking as never)
+      void scope.set('tool' as never, next.tool as never)
     } catch (e) { console.warn('[dsh-skinskin] 保存失败', e) }
   }
 
@@ -195,7 +262,7 @@ function SkinPluginCard(props: CardProps) {
   const toggleMaster = () => {
     const next = !masterEnabled
     setMasterEnabled(next)
-    applySkin(next ? settings : { reasoning: { ...DEFAULT_TEXT, enabled: false }, command: { ...DEFAULT_TEXT, enabled: false }, reply: { ...DEFAULT_TEXT, enabled: false } })
+    applySkin(next ? settings : { reply: { ...DEFAULT_TEXT }, internal: { ...DEFAULT_TEXT }, thinking: { ...DEFAULT_TEXT }, tool: { ...DEFAULT_TEXT } })
     try {
       void scope.set('enabled' as never, next as never)
     } catch (e) { console.warn('[dsh-skinskin] 保存失败', e) }
@@ -213,11 +280,8 @@ function SkinPluginCard(props: CardProps) {
     bindModalEvents(overlay)
   }
 
-  const onKey = (e: React.KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); closeModal() } }
-
   return (
     <li className={`dsh-mm-card ${open ? 'dsh-mm-card-open' : ''}`}>
-      {/* 卡片头：与其他插件一致 */}
       <button className="dsh-mm-head" onClick={() => setOpen(v => !v)} tabIndex={-1}>
         <span className="dsh-mm-head-text">
           <div className="dsh-mm-name-row">
@@ -226,7 +290,7 @@ function SkinPluginCard(props: CardProps) {
             </span>
             <span className="dsh-mm-version-badge">{VERSION}</span>
           </div>
-          <span className="dsh-mm-desc">修改对话记录的文字颜色 / 字号 / 字体，思考、命令、回复可分别设置</span>
+          <span className="dsh-mm-desc">修改对话记录的文字样式（颜色/透明度/字号/字体/效果），分「回复」和「内部」两大类</span>
         </span>
         <span className="dsh-mm-btns">
           <a className="dsh-mm-btn-link" href={REPO} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} title="打开 GitHub 仓库">ideasir</a>
@@ -236,10 +300,9 @@ function SkinPluginCard(props: CardProps) {
         </span>
       </button>
 
-      {/* 展开内容：总开关 + 样式设置大按钮 */}
       {open && (
         <div className="dsh-mm-body">
-          {/* 总开关（与 passpass 同款绿色开关） */}
+          {/* 总开关 */}
           <div className="dsh-mm-master">
             <button type="button" role="switch" aria-checked={masterEnabled} onClick={toggleMaster}
               style={{
@@ -262,7 +325,7 @@ function SkinPluginCard(props: CardProps) {
             </div>
           </div>
 
-          {/* 样式设置大按钮（弹窗） */}
+          {/* 样式设置大按钮 */}
           <button type="button" onClick={openModal}
             style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
@@ -283,49 +346,69 @@ function SkinPluginCard(props: CardProps) {
   )
 }
 
-// ── 弹窗渲染（DOM innerHTML，支持 Esc 关闭）──
-function renderModal(): string {
-  const group = (kind: keyof SkinSettings) => {
-    const p = PRESETS.find(x => x.kind === kind)!
-    const s = modalSettings[kind]
-    return `
-      <div class="dsh-skinskin-group" data-kind="${kind}">
-        <div class="dsh-skinskin-group-head">
-          <span class="dsh-skinskin-group-title">${p.icon} ${p.label} <span class="desc">${p.desc}</span></span>
-          <label class="dsh-skinskin-toggle">
-            <input type="checkbox" data-field="enabled" data-kind="${kind}" ${s.enabled ? 'checked' : ''} /> 启用
-          </label>
+// ── 弹窗渲染 ──────────────────────────────────────────
+function renderGroup(kind: string, title: string, icon: string, desc: string, def: { color: string; size: number; font: string }): string {
+  const s = modalSettings[kind as keyof SkinSettings]
+  const defaultFont = def.font === '系统默认' ? '' : def.font
+  const sizeVal = s.size || ''
+  const opacityPct = Math.round((s.opacity ?? 1) * 100)
+  return `
+    <div class="dsh-skinskin-group" data-kind="${kind}">
+      <div class="dsh-skinskin-group-head">
+        <span class="dsh-skinskin-group-title">${icon} ${title} <span class="desc">${desc}</span></span>
+      </div>
+      <div class="dsh-skinskin-fields">
+        <div class="dsh-skinskin-field">
+          <label>颜色</label>
+          <div class="dsh-skinskin-color-row">
+            <input type="color" data-field="color" data-kind="${kind}" value="${s.color || def.color}" />
+            <input type="text" data-field="color-text" data-kind="${kind}" value="${escapeAttr(s.color)}" placeholder="自定义（如 #f59e0b / rgb(...)）" />
+          </div>
         </div>
-        <div class="dsh-skinskin-fields">
-          <div class="dsh-skinskin-field">
-            <label>颜色</label>
-            <div class="dsh-skinskin-color-row">
-              <input type="color" data-field="color" data-kind="${kind}" value="${s.color || '#888888'}" ${s.enabled ? '' : 'disabled'} />
-              <input type="text" data-field="color" data-kind="${kind}" value="${escapeAttr(s.color)}" placeholder="自动 或 #颜色" ${s.enabled ? '' : 'disabled'} />
-            </div>
+        <div class="dsh-skinskin-field">
+          <label>透明度</label>
+          <div class="dsh-skinskin-opacity-row">
+            <input type="range" data-field="opacity" data-kind="${kind}" min="0" max="100" value="${opacityPct}" />
+            <span class="val" data-opacity-val="${kind}">${opacityPct}%</span>
           </div>
-          <div class="dsh-skinskin-field">
-            <label>字号</label>
-            <input type="number" data-field="size" data-kind="${kind}" value="${s.size || ''}" placeholder="默认" min="0" max="40" ${s.enabled ? '' : 'disabled'} />
+        </div>
+        <div class="dsh-skinskin-field">
+          <label>字号</label>
+          <div class="dsh-skinskin-size-row">
+            <button type="button" class="step" data-step="-1" data-field="size" data-kind="${kind}">−</button>
+            <input type="number" data-field="size" data-kind="${kind}" value="${sizeVal}" placeholder="默认 ${def.size}" min="0" max="40" />
+            <button type="button" class="step" data-step="1" data-field="size" data-kind="${kind}">+</button>
           </div>
-          <div class="dsh-skinskin-field">
-            <label>字体</label>
-            <input type="text" data-field="font" data-kind="${kind}" value="${escapeAttr(s.font)}" placeholder="默认（如 PingFang SC / JetBrains Mono）" ${s.enabled ? '' : 'disabled'} />
-          </div>
+        </div>
+        <div class="dsh-skinskin-field">
+          <label>字体</label>
+          <select data-field="font" data-kind="${kind}">
+            ${FONT_PRESETS.map(f => `<option value="${escapeAttr(f)}" ${(s.font || defaultFont) === f ? 'selected' : ''}>${f === '系统默认' ? `默认（${def.font}）` : f}</option>`).join('')}
+          </select>
+        </div>
+        <div class="dsh-skinskin-field">
+          <label>文字效果</label>
+          <select data-field="effect" data-kind="${kind}">
+            ${EFFECT_OPTIONS.map(e => `<option value="${e.value}" ${s.effect === e.value ? 'selected' : ''}>${e.label}</option>`).join('')}
+          </select>
         </div>
       </div>
-    `
-  }
+    </div>
+  `
+}
 
+function renderModal(): string {
   return `
     <div class="dsh-skinskin-modal" role="dialog" aria-label="样式设置">
       <h3>🎨 Skin Skin 样式设置</h3>
-      <p class="sub">修改对话记录的三种文字样式，即时生效。留空 = 使用 DSH 默认。</p>
-      ${group('reasoning')}
-      ${group('command')}
-      ${group('reply')}
+      <p class="sub">分两大类设置文字样式，即时生效。留空 = 使用 DSH 默认。</p>
+      ${renderGroup('reply', '① 智能体回复用户', '💬', 'assistant 正文回复', DEFAULTS.reply)}
+      ${renderGroup('internal', '② 智能体内部（统一）', '🧠', '思考 + 工具/命令/文件，统一设置', DEFAULTS.thinking)}
+      ${renderGroup('thinking', '② 思考（单独）', '💭', '仅思考过程；内部已统一设置时此项被覆盖', DEFAULTS.thinking)}
+      ${renderGroup('tool', '② 工具/命令/文件（单独）', '⚙️', '工具调用、命令执行、读写文件提示；内部已统一设置时此项被覆盖', DEFAULTS.tool)}
       <div class="dsh-skinskin-foot">
-        <span class="dsh-skinskin-hint">💡 修改即时生效，无需刷新。按 Esc 关闭。</span>
+        <span class="dsh-skinskin-hint">💡 修改即时生效。内部「统一」与「单独」同时设置时，以统一为准。按 Esc 关闭。</span>
+        <button type="button" data-action="reset" class="dsh-skinskin-reset">重置全部为默认</button>
         <button type="button" data-action="close" style="padding:8px 18px;border-radius:10px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);cursor:pointer;font-size:13px;font-weight:500">完成</button>
       </div>
     </div>
@@ -338,60 +421,67 @@ function escapeAttr(s: string): string {
 
 // ── 弹窗事件绑定 ──────────────────────────────────────
 function bindModalEvents(overlay: HTMLElement) {
-  // Esc 关闭
   const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeModal() }
   document.addEventListener('keydown', onKey)
-  overlay.setAttribute('data-esc', '')
 
-  // 点击遮罩关闭
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) closeModal()
+    const t = e.target as HTMLElement
+    if (t.getAttribute('data-action') === 'close') closeModal()
+    if (t.getAttribute('data-action') === 'reset') {
+      modalSettings = {
+        reply: { ...DEFAULT_TEXT }, internal: { ...DEFAULT_TEXT }, thinking: { ...DEFAULT_TEXT }, tool: { ...DEFAULT_TEXT },
+      }
+      if (modalSave) modalSave(modalSettings)
+      // 全量重渲染弹窗（重置后所有字段回到默认占位）
+      overlay.innerHTML = renderModal()
+      return
+    }
+    // 字号步进
+    if (t.classList.contains('step')) {
+      const kind = t.dataset.kind as keyof SkinSettings
+      const step = Number(t.dataset.step) || 0
+      const s = modalSettings[kind]
+      const cur = s.size || 0
+      const next = Math.max(0, Math.min(40, cur + step))
+      s.size = next
+      if (modalSave) modalSave(modalSettings)
+      const input = overlay.querySelector<HTMLInputElement>(`input[data-field="size"][data-kind="${kind}"]`)
+      if (input) input.value = next ? String(next) : ''
+      return
+    }
   })
 
-  // 字段变化
+  // 输入变化
   overlay.addEventListener('input', (e) => {
     const el = e.target as HTMLInputElement
     const kind = el.dataset.kind as keyof SkinSettings
     const field = el.dataset.field as string
     if (!kind || !field || !modalSettings[kind]) return
+    const s = modalSettings[kind]
     if (field === 'color') {
-      modalSettings[kind].color = el.value
-      // 同步色板输入框
-      overlay.querySelectorAll<HTMLInputElement>(`input[data-field="color"][data-kind="${kind}"]`).forEach(i => { i.value = el.value })
+      s.color = el.value
+      const text = overlay.querySelector<HTMLInputElement>(`input[data-field="color-text"][data-kind="${kind}"]`)
+      if (text) text.value = el.value
+    } else if (field === 'color-text') {
+      s.color = el.value
+      const picker = overlay.querySelector<HTMLInputElement>(`input[data-field="color"][data-kind="${kind}"]`)
+      if (picker && /^#[0-9a-fA-F]{6}$/.test(el.value)) picker.value = el.value
     } else if (field === 'size') {
-      modalSettings[kind].size = Number(el.value) || 0
+      s.size = Number(el.value) || 0
+    } else if (field === 'opacity') {
+      s.opacity = Number(el.value) / 100
+      const val = overlay.querySelector<HTMLSpanElement>(`[data-opacity-val="${kind}"]`)
+      if (val) val.textContent = el.value + '%'
     } else if (field === 'font') {
-      modalSettings[kind].font = el.value
+      s.font = el.value === '系统默认' ? '' : el.value
+    } else if (field === 'effect') {
+      s.effect = el.value
     }
     if (modalSave) modalSave(modalSettings)
   })
 
-  // 启用开关
-  overlay.addEventListener('change', (e) => {
-    const el = e.target as HTMLInputElement
-    if (el.dataset.field === 'enabled') {
-      const kind = el.dataset.kind as keyof SkinSettings
-      if (!kind || !modalSettings[kind]) return
-      modalSettings[kind].enabled = el.checked
-      // 同步组内 disabled 状态（改起来麻烦，直接重渲染）
-      if (modalSave) modalSave(modalSettings)
-      return
-    }
-    if (el.dataset.field === 'color') {
-      const kind = el.dataset.kind as keyof SkinSettings
-      if (!kind || !modalSettings[kind]) return
-      modalSettings[kind].color = el.value
-      if (modalSave) modalSave(modalSettings)
-    }
-  })
-
-  // 完成 / 关闭
-  overlay.addEventListener('click', (e) => {
-    const t = e.target as HTMLElement
-    if (t.getAttribute('data-action') === 'close') closeModal()
-  })
-
-  // 清理事件（overlay 移除时）
+  // 清理事件
   const observer = new MutationObserver(() => {
     if (!document.body.contains(overlay)) {
       document.removeEventListener('keydown', onKey)
@@ -401,7 +491,7 @@ function bindModalEvents(overlay: HTMLElement) {
   observer.observe(document.body, { childList: true })
 }
 
-// ── 图标（Lucide，24×24 / 2px / round）──
+// ── 图标（Lucide）──
 const SKIN_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z"/><path d="M3.6 9h16.8"/><path d="M3.6 15h16.8"/><path d="M12 3a15.5 15.5 0 0 1 0 18"/><path d="M12 3a15.5 15.5 0 0 0 0 18"/></svg>'
 const PALETTE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M12 22a10 10 0 1 1 10-10c0 2-1.5 3-3 3h-2.5a2.5 2.5 0 0 0-2 4c.5.8.2 3-2.5 3z"/><circle cx="7.5" cy="11.5" r="1"/><circle cx="11" cy="7.5" r="1"/><circle cx="15.5" cy="8.5" r="1"/></svg>'
 
@@ -412,13 +502,11 @@ export function apply(ctx: Context): void {
   const { api } = ctx.get('connection') as ConnectionHandle
   const scope = ctx.settingsScope.bind<SkinSettings>({ namespace: SKIN_NAMESPACE as never })
 
-  // 注入卡片 CSS
   const style = document.createElement('style')
   style.dataset.plugin = 'dsh-skinskin-css'
   style.textContent = CARD_CSS
   document.head.appendChild(style)
 
-  // 注册设置面板卡片（key = 服务端 settingsNamespace）
   ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
     name: 'settings.plugin.item',
     key: SKIN_NAMESPACE,
@@ -427,7 +515,6 @@ export function apply(ctx: Context): void {
     inject: (): SettingsFace => ({ scope }),
   }, SkinPluginCard))
 
-  // 注入已保存的样式
   try {
     const v = scope.getSnapshot()?.value
     if (v) applySkin(v as SkinSettings)
