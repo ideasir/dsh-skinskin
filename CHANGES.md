@@ -180,3 +180,19 @@ Read/Grep 等多行记录是 flex 列表（TodoPanel 的 lXshSW_list），行与
 ### 验证
 - CSS: `line-height:2 !important; gap:2em !important` ✅
 - 模拟 lXshSW_list 列表：默认 gap 8px → 设置行距 2.0 后实际 gap=20px ✅
+
+## 2026-08-30 — 字号卡在1的根因修复
+
+### 根因
+字号步进用 `Math.max(1, ...)` 把最小值锁死在 1，减到 1 就下不去，也回不到默认值。
+
+### 修复
+改成 `Math.max(0, ...)`：
+- 减到 0 = 归零 = 使用 DSH 默认字号
+- size=0 时 CSS 不输出 font-size（用默认），输入框显示默认值（如 14）
+- 从默认值再步进（14→15→...）
+
+### 验证
+- 设字号 1 → 点减号 → 归零回默认 14 ✅
+- size=0 时 CSS 无 font-size 规则（用 DSH 默认）✅
+- lineHeight 仍正常输出（line-height + gap）✅

@@ -471,14 +471,14 @@ function bindPanelEvents(panel: HTMLElement) {
         const input = panel.querySelector<HTMLInputElement>(`input[data-field="lineHeight"][data-kind="${kind}"]`)
         if (input) input.value = next ? String(next) : ''
       } else {
-        // 字号步进（基于有效字号：未自定义则用默认字号作基准）
+        // 字号步进（基于有效字号：未自定义则用默认字号作基准；允许归零=使用默认）
         const defSize = defaultSizeFor(kind)
         const cur = s.size > 0 ? s.size : defSize
-        const next = Math.max(1, Math.min(40, cur + step))
+        const next = Math.max(0, Math.min(40, cur + step))
         s.size = next
         if (modalSave) modalSave(modalSettings)
         const input = panel.querySelector<HTMLInputElement>(`input[data-field="size"][data-kind="${kind}"]`)
-        if (input) input.value = String(next)
+        if (input) input.value = next > 0 ? String(next) : String(defSize)
       }
       return
     }
