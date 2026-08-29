@@ -167,3 +167,16 @@
 - 面板有行距控件（reply + internal）✅
 - 内部设字号12+行距1.8 → CSS 输出 `font-size:12px;line-height:1.8` ✅
 - Think 选择器命中（QWLzlG）✅
+
+## 2026-08-30 — 行距不生效根因修复（gap 控制 flex 列表行间距）
+
+### 根因
+Read/Grep 等多行记录是 flex 列表（TodoPanel 的 lXshSW_list），行与行间距由 **gap** 控制，不是 line-height。之前行距只设 line-height（管单行内部文字行高），对 flex 列表行间距无效。
+
+### 修复
+1. styleRule 设置 lineHeight 时，同时输出 `gap:${lineHeight}em !important`（em 相对字号，flex 列表行间距生效）
+2. SELECTORS.internal 加入 TodoPanel 列表类：`[class*="lXshSW_list"], [class*="lXshSW_item"]`
+
+### 验证
+- CSS: `line-height:2 !important; gap:2em !important` ✅
+- 模拟 lXshSW_list 列表：默认 gap 8px → 设置行距 2.0 后实际 gap=20px ✅

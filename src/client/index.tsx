@@ -87,8 +87,9 @@ const EFFECT_OPTIONS: Array<{ value: string; label: string }> = [
 const SELECTORS: Record<keyof SkinSettings, string> = {
   // ① 回复：assistant-step 内的 markdown 正文（不含 Think 块）
   reply: `[data-chat-flow-kind="assistant-step"] [class*="_markdown"]`,
-  // ② 内部：思考(assistant-step 内 QWLzlG 块) + reasoning/command/tool-call/tool-result/context 节点
-  internal: `[data-chat-flow-kind="assistant-step"] [class*="QWLzlG"], [data-chat-flow-kind="reasoning"], [data-chat-flow-kind="command"], [data-chat-flow-kind="tool-call"], [data-chat-flow-kind="tool-result"], [data-chat-flow-kind="context"]`,
+  // ② 内部：思考(assistant-step 内 QWLzlG 块) + reasoning/command/tool-call/tool-result/context
+  //     + TodoPanel 列表（Read/Grep 多行记录，lXshSW_list 用 gap 控制行间距）
+  internal: `[data-chat-flow-kind="assistant-step"] [class*="QWLzlG"], [data-chat-flow-kind="reasoning"], [data-chat-flow-kind="command"], [data-chat-flow-kind="tool-call"], [data-chat-flow-kind="tool-result"], [data-chat-flow-kind="context"], [class*="lXshSW_list"], [class*="lXshSW_item"]`,
 }
 
 // ── 样式注入 ──────────────────────────────────────────
@@ -102,7 +103,12 @@ function styleRule(selector: string, s: TextStyle): string | null {
   if (s.color) parts.push(`color:${s.color} !important`)
   if (s.opacity !== undefined && s.opacity !== 1) parts.push(`opacity:${s.opacity} !important`)
   if (s.size > 0) parts.push(`font-size:${s.size}px !important`)
-  if (s.lineHeight && s.lineHeight > 0) parts.push(`line-height:${s.lineHeight} !important`)
+  if (s.lineHeight && s.lineHeight > 0) {
+    parts.push(`line-height:${s.lineHeight} !important`)
+    // 行距也影响 flex 列表的 gap（Read/Grep 等多行是 flex 项，gap 控制行间距）
+    // gap 需要长度单位，用 em（相对当前字号）
+    parts.push(`gap:${s.lineHeight}em !important`)
+  }
   if (s.font && s.font.trim() && s.font !== '系统默认') parts.push(`font-family:"${s.font.trim()}" !important`)
   if (s.effect) {
     const fx = s.effect.split(',')
