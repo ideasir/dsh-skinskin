@@ -27,6 +27,7 @@ interface TextStyle {
   color: string        // CSS 颜色；空 = DSH 默认
   opacity: number      // 透明度 0-1；1 = 不透明
   size: number         // 字号 px；0 = DSH 默认
+  lineHeight: number   // 行距倍率（如 1.5）；0 = DSH 默认
   font: string         // 字体；空 = DSH 默认
   effect: string       // 文字效果：'' | 'bold' | 'italic' | 'underline' | 'bold,italic' ...
 }
@@ -42,7 +43,7 @@ interface SettingsFace {
 
 type CardProps = PropsRuntime<'settings.plugin.item'> & InjectFace<SettingsFace>
 
-const DEFAULT_TEXT: TextStyle = { color: '', opacity: 1, size: 0, font: '', effect: '' }
+const DEFAULT_TEXT: TextStyle = { color: '', opacity: 1, size: 0, lineHeight: 0, font: '', effect: '' }
 
 // ── DSH 默认值（深色主题实测，用于面板初始显示；留空 = 跟随主题变量）──
 const DEFAULTS: Record<string, { color: string; size: number; font: string }> = {
@@ -78,14 +79,16 @@ const EFFECT_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'bold,underline', label: '粗体+下划线' },
 ]
 
-// ── CSS 选择器（基于 data-chat-flow-kind 稳定属性，作用于整行节点）──
-// 2026-08-30 主任反馈修正：样式要"按行生效"，作用到整个 flow item 节点，
-// 让该行内所有文字（标题/摘要）+ 图标统一缩放，而不是只改行内某段文字
+// ── CSS 选择器（基于 data-chat-flow-kind 稳定属性 + 实测 DOM）──
+// 2026-08-30 修正：Think（思考过程）的 kind 是 assistant-step（跟回复正文同一个），
+// 但类名是 QWLzlG_*（ReasoningRow）。所以：
+//   回复 = assistant-step 内真正的 markdown 正文（不含 Think）
+//   内部 = 思考(assistant-step 内的 QWLzlG) + 工具/命令/上下文
 const SELECTORS: Record<keyof SkinSettings, string> = {
-  // ① 回复：assistant-step 整个节点（真正的回复正文）
-  reply: `[data-chat-flow-kind="assistant-step"]`,
-  // ② 内部：思考/工具/命令/上下文 等所有非最终回复节点（统一设置）
-  internal: `[data-chat-flow-kind="reasoning"], [data-chat-flow-kind="command"], [data-chat-flow-kind="tool-call"], [data-chat-flow-kind="tool-result"], [data-chat-flow-kind="context"]`,
+  // ① 回复：assistant-step 内的 markdown 正文（不含 Think 块）
+  reply: `[data-chat-flow-kind="assistant-step"] [class*="_markdown"]`,
+  // ② 内部：思考(assistant-step 内 QWLzlG 块) + reasoning/command/tool-call/tool-result/context 节点
+  internal: `[data-chat-flow-kind="assistant-step"] [class*="QWLzlG"], [data-chat-flow-kind="reasoning"], [data-chat-flow-kind="command"], [data-chat-flow-kind="tool-call"], [data-chat-flow-kind="tool-result"], [data-chat-flow-kind="context"]`,
 }
 
 // ── 样式注入 ──────────────────────────────────────────
@@ -99,6 +102,7 @@ function styleRule(selector: string, s: TextStyle): string | null {
   if (s.color) parts.push(`color:${s.color} !important`)
   if (s.opacity !== undefined && s.opacity !== 1) parts.push(`opacity:${s.opacity} !important`)
   if (s.size > 0) parts.push(`font-size:${s.size}px !important`)
+  if (s.lineHeight && s.lineHeight > 0) parts.push(`line-height:${s.lineHeight} !important`)
   if (s.font && s.font.trim() && s.font !== '系统默认') parts.push(`font-family:"${s.font.trim()}" !important`)
   if (s.effect) {
     const fx = s.effect.split(',')
@@ -112,7 +116,7 @@ function styleRule(selector: string, s: TextStyle): string | null {
 // 判断某个 TextStyle 是否设置了任何项（非全空）
 function hasAnyStyle(s: TextStyle | undefined): boolean {
   if (!s) return false
-  return !!(s.color || s.size > 0 || (s.font && s.font.trim() && s.font !== '系统默认') || s.effect || (s.opacity !== undefined && s.opacity !== 1))
+  return !!(s.color || s.size > 0 || (s.lineHeight && s.lineHeight > 0) || (s.font && s.font.trim() && s.font !== '系统默认') || s.effect || (s.opacity !== undefined && s.opacity !== 1))
 }
 
 function buildCss(settings: SkinSettings): string {
@@ -348,6 +352,7 @@ function renderForm(kind: string): string {
   const effectiveSize = s.size > 0 ? s.size : def.size
   const sizeVal = String(effectiveSize)
   const opacityPct = Math.round((s.opacity ?? 1) * 100)
+  const lineHeightVal = s.lineHeight > 0 ? String(s.lineHeight) : ''
   return `
     <div class="dsh-skinskin-fields">
       <div class="dsh-skinskin-field">
@@ -370,6 +375,14 @@ function renderForm(kind: string): string {
           <button type="button" class="step" data-step="-1" data-field="size" data-kind="${kind}">−</button>
           <input type="number" data-field="size" data-kind="${kind}" value="${sizeVal}" placeholder="默认 ${def.size}" min="0" max="40" />
           <button type="button" class="step" data-step="1" data-field="size" data-kind="${kind}">+</button>
+        </div>
+      </div>
+      <div class="dsh-skinskin-field">
+        <label>行距</label>
+        <div class="dsh-skinskin-size-row">
+          <button type="button" class="step" data-step="-0.1" data-field="lineHeight" data-kind="${kind}">−</button>
+          <input type="number" data-field="lineHeight" data-kind="${kind}" value="${lineHeightVal}" placeholder="默认" min="0" max="3" step="0.1" />
+          <button type="button" class="step" data-step="0.1" data-field="lineHeight" data-kind="${kind}">+</button>
         </div>
       </div>
       <div class="dsh-skinskin-field">
@@ -438,18 +451,29 @@ function bindPanelEvents(panel: HTMLElement) {
       panel.innerHTML = renderModal()
       return
     }
-    // 字号步进（基于有效字号：未自定义则用默认字号作基准）
+    // 步进（字号 ±1，行距 ±0.1）
     if (t.classList.contains('step')) {
       const kind = t.dataset.kind as keyof SkinSettings
+      const field = t.dataset.field as string
       const step = Number(t.dataset.step) || 0
       const s = modalSettings[kind]
-      const defSize = defaultSizeFor(kind)
-      const cur = s.size > 0 ? s.size : defSize
-      const next = Math.max(1, Math.min(40, cur + step))
-      s.size = next
-      if (modalSave) modalSave(modalSettings)
-      const input = panel.querySelector<HTMLInputElement>(`input[data-field="size"][data-kind="${kind}"]`)
-      if (input) input.value = String(next)
+      if (field === 'lineHeight') {
+        const cur = s.lineHeight > 0 ? s.lineHeight : 0
+        const next = Math.round(Math.max(0, Math.min(3, cur + step)) * 10) / 10
+        s.lineHeight = next
+        if (modalSave) modalSave(modalSettings)
+        const input = panel.querySelector<HTMLInputElement>(`input[data-field="lineHeight"][data-kind="${kind}"]`)
+        if (input) input.value = next ? String(next) : ''
+      } else {
+        // 字号步进（基于有效字号：未自定义则用默认字号作基准）
+        const defSize = defaultSizeFor(kind)
+        const cur = s.size > 0 ? s.size : defSize
+        const next = Math.max(1, Math.min(40, cur + step))
+        s.size = next
+        if (modalSave) modalSave(modalSettings)
+        const input = panel.querySelector<HTMLInputElement>(`input[data-field="size"][data-kind="${kind}"]`)
+        if (input) input.value = String(next)
+      }
       return
     }
   })
@@ -471,6 +495,8 @@ function bindPanelEvents(panel: HTMLElement) {
       if (picker && /^#[0-9a-fA-F]{6}$/.test(el.value)) picker.value = el.value
     } else if (field === 'size') {
       s.size = Number(el.value) || 0
+    } else if (field === 'lineHeight') {
+      s.lineHeight = Number(el.value) || 0
     } else if (field === 'opacity') {
       s.opacity = Number(el.value) / 100
       const val = panel.querySelector<HTMLSpanElement>(`[data-opacity-val="${kind}"]`)

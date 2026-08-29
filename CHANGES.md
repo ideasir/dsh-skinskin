@@ -147,3 +147,23 @@
 - 内部字号 12px 所有节点（reasoning/command/tool-call/context）整行+图标生效 ✅
 - CSS 逗号坑已确认修好 ✅
 - 样式自动注入 ✅
+
+## 2026-08-30 — 行距设置 + Think 归入内部信息（选择器修正）
+
+### 需求
+1. 内部信息（思考/工具/命令）这类多行记录要能单独设行距
+2. Think（思考过程）实测 kind 是 assistant-step（跟回复正文同一个），但类名 QWLzlG_*（ReasoningRow）—— 必须归入"内部信息"而不是"回复信息"
+
+### 实现
+1. TextStyle 加 lineHeight 字段（0-3 倍率，0=默认）；服务端 schema + settings.yaml 同步
+2. styleRule 输出 line-height；hasAnyStyle 判断含 lineHeight
+3. renderForm 加"行距"控件（±0.1 步进）
+4. 选择器修正：
+   - reply → `assistant-step` 内 `[class*="_markdown"]`（真正的回复正文，不含 Think）
+   - internal → `assistant-step` 内 `[class*="QWLzlG"]`（Think）+ reasoning/command/tool-call/tool-result/context
+
+### 验证
+- schema: reply/internal 都含 lineHeight ✅
+- 面板有行距控件（reply + internal）✅
+- 内部设字号12+行距1.8 → CSS 输出 `font-size:12px;line-height:1.8` ✅
+- Think 选择器命中（QWLzlG）✅
