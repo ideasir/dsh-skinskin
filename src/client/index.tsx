@@ -105,9 +105,9 @@ function styleRule(selector: string, s: TextStyle): string | null {
   if (s.size > 0) parts.push(`font-size:${s.size}px !important`)
   if (s.lineHeight && s.lineHeight > 0) {
     parts.push(`line-height:${s.lineHeight} !important`)
-    // 行距也影响 flex 列表的 gap（Read/Grep 等多行是 flex 项，gap 控制行间距）
-    // gap 需要长度单位，用 em（相对当前字号）
-    parts.push(`gap:${s.lineHeight}em !important`)
+    // 行距：flow item 之间的间距由 margin-bottom 控制（不是 gap，gap 对 flex 子项无效）
+    // 用 em 相对字号，在父容器 gap 基础上额外增加
+    parts.push(`margin-bottom:${s.lineHeight}em !important`)
   }
   if (s.font && s.font.trim() && s.font !== '系统默认') parts.push(`font-family:"${s.font.trim()}" !important`)
   if (s.effect) {

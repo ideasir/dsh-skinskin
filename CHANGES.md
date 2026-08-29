@@ -196,3 +196,19 @@ Read/Grep 等多行记录是 flex 列表（TodoPanel 的 lXshSW_list），行与
 - 设字号 1 → 点减号 → 归零回默认 14 ✅
 - size=0 时 CSS 无 font-size 规则（用 DSH 默认）✅
 - lineHeight 仍正常输出（line-height + gap）✅
+
+## 2026-08-30 — 行距最终修复（margin-bottom 控制 flow item 间距）
+
+### 根因（第三轮）
+主任截图里"行距"指的是 **Tool call / Think 这些 flow item 之间的垂直间距**。flow item 是 flex 列的子项（父容器 Md3f7G_column gap:16px），**gap 属性对 flex 子项无效**（只有容器设置才生效），所以之前设 gap 完全没效果。
+
+### 修复
+styleRule 设置 lineHeight 时输出 `margin-bottom:${lineHeight}em !important`：
+- margin-bottom 对 flex 子项生效，真正拉开 flow item 之间的间距
+- 在父容器 gap(16px) 基础上叠加，行距越大间距越大
+
+### 验证（实测 DOM）
+- command flow item: margin-bottom = 32px（2em×16px）✅
+- context flow item: margin-bottom = 32px ✅
+- user flow item: margin-bottom = 0px（不在内部选择器，正确）✅
+- 父容器 gap 16px 保留，margin 叠加后间距明显拉开 ✅
