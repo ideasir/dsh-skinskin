@@ -90,48 +90,45 @@ const SELECTORS: Record<keyof SkinSettings, string> = {
 // ── 样式注入 ──────────────────────────────────────────
 let styleEl: HTMLStyleElement | null = null
 
+// 生成单条样式规则（空样式返回 null）
+function styleRule(selector: string, s: TextStyle): string | null {
+  if (!s) return null
+  const parts: string[] = []
+  if (s.color) parts.push(`color:${s.color}`)
+  if (s.opacity !== undefined && s.opacity !== 1) parts.push(`opacity:${s.opacity}`)
+  if (s.size > 0) parts.push(`font-size:${s.size}px`)
+  if (s.font && s.font.trim() && s.font !== '系统默认') parts.push(`font-family:"${s.font.trim()}"`)
+  if (s.effect) {
+    const fx = s.effect.split(',')
+    if (fx.includes('bold')) parts.push('font-weight:700')
+    if (fx.includes('italic')) parts.push('font-style:italic')
+    if (fx.includes('underline')) parts.push('text-decoration:underline')
+  }
+  return parts.length ? `${selector} { ${parts.join(';')} }` : null
+}
+
 function buildCss(settings: SkinSettings): string {
   const rules: string[] = []
-  // 内部统一设置（internal 生效时，thinking/tool 单独设置被覆盖）
-  const internalActive = settings.internal.color || settings.internal.size > 0 || settings.internal.font || settings.internal.effect || settings.internal.opacity !== 1
+  const r = styleRule(SELECTORS.reply, settings?.reply)
+  if (r) rules.push(r)
 
-  ;(['reply', 'thinking', 'tool'] as const).forEach((kind) => {
-    // 若 internal 已设置且是 thinking/tool → 跳过（由 internal 统一控制）
-    if (internalActive && kind !== 'reply') return
-    const s = settings?.[kind]
-    if (!s) return
-    const parts: string[] = []
-    if (s.color) parts.push(`color:${s.color}`)
-    if (s.opacity !== undefined && s.opacity !== 1) parts.push(`opacity:${s.opacity}`)
-    if (s.size > 0) parts.push(`font-size:${s.size}px`)
-    if (s.font && s.font.trim() && s.font !== '系统默认') parts.push(`font-family:"${s.font.trim()}"`)
-    if (s.effect) {
-      const fx = s.effect.split(',')
-      if (fx.includes('bold')) parts.push('font-weight:700')
-      if (fx.includes('italic')) parts.push('font-style:italic')
-      if (fx.includes('underline')) parts.push('text-decoration:underline')
-    }
-    if (parts.length) rules.push(`${SELECTORS[kind]} { ${parts.join(';')} }`)
-  })
+  // ② 内部文字：单独设置优先，单独没设才用总设置
+  // 思考（thinking）和 工具（tool）各自的单独设置；单独为空 → 回退总设置 internal
+  const thinkingStyle = hasAnyStyle(settings?.thinking) ? settings.thinking : settings?.internal
+  const toolStyle = hasAnyStyle(settings?.tool) ? settings.tool : settings?.internal
 
-  // internal 统一设置（单独一条规则，覆盖 thinking/tool）
-  if (internalActive) {
-    const s = settings.internal
-    const parts: string[] = []
-    if (s.color) parts.push(`color:${s.color}`)
-    if (s.opacity !== undefined && s.opacity !== 1) parts.push(`opacity:${s.opacity}`)
-    if (s.size > 0) parts.push(`font-size:${s.size}px`)
-    if (s.font && s.font.trim() && s.font !== '系统默认') parts.push(`font-family:"${s.font.trim()}"`)
-    if (s.effect) {
-      const fx = s.effect.split(',')
-      if (fx.includes('bold')) parts.push('font-weight:700')
-      if (fx.includes('italic')) parts.push('font-style:italic')
-      if (fx.includes('underline')) parts.push('text-decoration:underline')
-    }
-    if (parts.length) rules.push(`${SELECTORS.internal} { ${parts.join(';')} }`)
-  }
+  const tr = styleRule(SELECTORS.thinking, thinkingStyle)
+  if (tr) rules.push(tr)
+  const tlr = styleRule(SELECTORS.tool, toolStyle)
+  if (tlr) rules.push(tlr)
 
   return rules.join('\n')
+}
+
+// 判断某个 TextStyle 是否设置了任何项（非全空）
+function hasAnyStyle(s: TextStyle | undefined): boolean {
+  if (!s) return false
+  return !!(s.color || s.size > 0 || (s.font && s.font.trim() && s.font !== '系统默认') || s.effect || (s.opacity !== undefined && s.opacity !== 1))
 }
 
 function applySkin(settings: SkinSettings) {
@@ -347,51 +344,48 @@ function SkinPluginCard(props: CardProps) {
 }
 
 // ── 弹窗渲染 ──────────────────────────────────────────
-function renderGroup(kind: string, title: string, icon: string, desc: string, def: { color: string; size: number; font: string }): string {
+// 渲染单个样式表单（5 列：颜色/透明度/字号/字体/效果）
+function renderForm(kind: string): string {
   const s = modalSettings[kind as keyof SkinSettings]
-  const defaultFont = def.font === '系统默认' ? '' : def.font
+  const opts = kind === 'internal' ? { color: '#adb2b8', size: 14, font: '系统默认' } : DEFAULTS[kind]
+  const def = opts || { color: '#adb2b8', size: 14, font: '系统默认' }
   const sizeVal = s.size || ''
   const opacityPct = Math.round((s.opacity ?? 1) * 100)
   return `
-    <div class="dsh-skinskin-group" data-kind="${kind}">
-      <div class="dsh-skinskin-group-head">
-        <span class="dsh-skinskin-group-title">${icon} ${title} <span class="desc">${desc}</span></span>
+    <div class="dsh-skinskin-fields">
+      <div class="dsh-skinskin-field">
+        <label>颜色</label>
+        <div class="dsh-skinskin-color-row">
+          <input type="color" data-field="color" data-kind="${kind}" value="${s.color || def.color}" />
+          <input type="text" data-field="color-text" data-kind="${kind}" value="${escapeAttr(s.color)}" placeholder="自定义（如 #f59e0b / rgb(...)）" />
+        </div>
       </div>
-      <div class="dsh-skinskin-fields">
-        <div class="dsh-skinskin-field">
-          <label>颜色</label>
-          <div class="dsh-skinskin-color-row">
-            <input type="color" data-field="color" data-kind="${kind}" value="${s.color || def.color}" />
-            <input type="text" data-field="color-text" data-kind="${kind}" value="${escapeAttr(s.color)}" placeholder="自定义（如 #f59e0b / rgb(...)）" />
-          </div>
+      <div class="dsh-skinskin-field">
+        <label>透明度</label>
+        <div class="dsh-skinskin-opacity-row">
+          <input type="range" data-field="opacity" data-kind="${kind}" min="0" max="100" value="${opacityPct}" />
+          <span class="val" data-opacity-val="${kind}">${opacityPct}%</span>
         </div>
-        <div class="dsh-skinskin-field">
-          <label>透明度</label>
-          <div class="dsh-skinskin-opacity-row">
-            <input type="range" data-field="opacity" data-kind="${kind}" min="0" max="100" value="${opacityPct}" />
-            <span class="val" data-opacity-val="${kind}">${opacityPct}%</span>
-          </div>
+      </div>
+      <div class="dsh-skinskin-field">
+        <label>字号</label>
+        <div class="dsh-skinskin-size-row">
+          <button type="button" class="step" data-step="-1" data-field="size" data-kind="${kind}">−</button>
+          <input type="number" data-field="size" data-kind="${kind}" value="${sizeVal}" placeholder="默认 ${def.size}" min="0" max="40" />
+          <button type="button" class="step" data-step="1" data-field="size" data-kind="${kind}">+</button>
         </div>
-        <div class="dsh-skinskin-field">
-          <label>字号</label>
-          <div class="dsh-skinskin-size-row">
-            <button type="button" class="step" data-step="-1" data-field="size" data-kind="${kind}">−</button>
-            <input type="number" data-field="size" data-kind="${kind}" value="${sizeVal}" placeholder="默认 ${def.size}" min="0" max="40" />
-            <button type="button" class="step" data-step="1" data-field="size" data-kind="${kind}">+</button>
-          </div>
-        </div>
-        <div class="dsh-skinskin-field">
-          <label>字体</label>
-          <select data-field="font" data-kind="${kind}">
-            ${FONT_PRESETS.map(f => `<option value="${escapeAttr(f)}" ${(s.font || defaultFont) === f ? 'selected' : ''}>${f === '系统默认' ? `默认（${def.font}）` : f}</option>`).join('')}
-          </select>
-        </div>
-        <div class="dsh-skinskin-field">
-          <label>文字效果</label>
-          <select data-field="effect" data-kind="${kind}">
-            ${EFFECT_OPTIONS.map(e => `<option value="${e.value}" ${s.effect === e.value ? 'selected' : ''}>${e.label}</option>`).join('')}
-          </select>
-        </div>
+      </div>
+      <div class="dsh-skinskin-field">
+        <label>字体</label>
+        <select data-field="font" data-kind="${kind}">
+          ${FONT_PRESETS.map(f => `<option value="${escapeAttr(f)}" ${(s.font || '') === f || (!s.font && f === '系统默认') ? 'selected' : ''}>${f === '系统默认' ? `默认（${def.font}）` : f}</option>`).join('')}
+        </select>
+      </div>
+      <div class="dsh-skinskin-field">
+        <label>文字效果</label>
+        <select data-field="effect" data-kind="${kind}">
+          ${EFFECT_OPTIONS.map(e => `<option value="${e.value}" ${s.effect === e.value ? 'selected' : ''}>${e.label}</option>`).join('')}
+        </select>
       </div>
     </div>
   `
@@ -401,13 +395,55 @@ function renderModal(): string {
   return `
     <div class="dsh-skinskin-modal" role="dialog" aria-label="样式设置">
       <h3>🎨 Skin Skin 样式设置</h3>
-      <p class="sub">分两大类设置文字样式，即时生效。留空 = 使用 DSH 默认。</p>
-      ${renderGroup('reply', '① 智能体回复用户', '💬', 'assistant 正文回复', DEFAULTS.reply)}
-      ${renderGroup('internal', '② 智能体内部（统一）', '🧠', '思考 + 工具/命令/文件，统一设置', DEFAULTS.thinking)}
-      ${renderGroup('thinking', '② 思考（单独）', '💭', '仅思考过程；内部已统一设置时此项被覆盖', DEFAULTS.thinking)}
-      ${renderGroup('tool', '② 工具/命令/文件（单独）', '⚙️', '工具调用、命令执行、读写文件提示；内部已统一设置时此项被覆盖', DEFAULTS.tool)}
+      <p class="sub">设置文字样式，留空 = 使用 DSH 默认。修改即时生效。</p>
+
+      <!-- ① 智能体回复用户 -->
+      <div class="dsh-skinskin-group">
+        <div class="dsh-skinskin-group-head">
+          <span class="dsh-skinskin-group-title">💬 ① 智能体回复用户 <span class="desc">assistant 正文回复</span></span>
+        </div>
+        ${renderForm('reply')}
+      </div>
+
+      <!-- ② 其他显示内容（大框） -->
+      <div class="dsh-skinskin-group" style="border:2px solid var(--dsw-alias-brand-primary,#4c78ff)">
+        <div class="dsh-skinskin-group-head">
+          <span class="dsh-skinskin-group-title">🧠 ② 其他显示内容 <span class="desc">思考过程、调用工具、执行命令、读写文件等非最终回复内容</span></span>
+        </div>
+        <p style="font-size:11px;color:var(--dsw-alias-label-tertiary);margin:0 0 10px">总设置：作用于全部非回复内容。单独设置权重 > 总设置（设了单独就以单独为准）。</p>
+
+        <!-- 总设置 -->
+        <div style="border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:10px;margin-bottom:12px;background:var(--dsw-alias-bg-base)">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)">
+            <span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:999px;background:var(--dsw-alias-brand-primary);color:#fff;font-size:11px;font-weight:700">总</span>
+            总设置（思考、工具、命令、文件等全部统一）
+          </div>
+          ${renderForm('internal')}
+        </div>
+
+        <!-- 单独设置 -->
+        <div style="border:1px dashed var(--dsw-alias-border-l2);border-radius:10px;padding:10px;background:var(--dsw-alias-bg-base)">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)">
+            <span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:999px;background:var(--dsw-alias-label-tertiary);color:var(--dsw-alias-bg-base);font-size:11px;font-weight:700">单</span>
+            单独设置（可分别设置，优先级高于总设置）
+          </div>
+          <div class="dsh-skinskin-group" style="margin-bottom:8px">
+            <div class="dsh-skinskin-group-head">
+              <span class="dsh-skinskin-group-title">💭 思考过程</span>
+            </div>
+            ${renderForm('thinking')}
+          </div>
+          <div class="dsh-skinskin-group">
+            <div class="dsh-skinskin-group-head">
+              <span class="dsh-skinskin-group-title">⚙️ 调用工具 / 执行命令 / 读写文件</span>
+            </div>
+            ${renderForm('tool')}
+          </div>
+        </div>
+      </div>
+
       <div class="dsh-skinskin-foot">
-        <span class="dsh-skinskin-hint">💡 修改即时生效。内部「统一」与「单独」同时设置时，以统一为准。按 Esc 关闭。</span>
+        <span class="dsh-skinskin-hint">💡 修改即时生效。按 Esc 或点遮罩关闭。</span>
         <button type="button" data-action="reset" class="dsh-skinskin-reset">重置全部为默认</button>
         <button type="button" data-action="close" style="padding:8px 18px;border-radius:10px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);cursor:pointer;font-size:13px;font-weight:500">完成</button>
       </div>
