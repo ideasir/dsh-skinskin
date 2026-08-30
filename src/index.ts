@@ -14,12 +14,11 @@ import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 export const name = 'dsh-skinskin'
 export const inject = ['settings']
 
-// 单类文字样式：颜色 / 透明度(0-1) / 字号(px) / 字体 / 文字效果 / 行距
+// 单类文字样式：颜色 / 透明度(0-1) / 字号(px) / 字体 / 文字效果
 const TextStyle = Schema.object({
   color: Schema.string().default(''),        // CSS 颜色；空 = DSH 默认
   opacity: Schema.number().min(0).max(1).default(1), // 透明度 0-1；1 = 不透明
   size: Schema.number().min(0).max(40).default(0),   // 字号 px；0 = DSH 默认
-  lineHeight: Schema.number().min(0).max(3).default(0), // 行距倍率（如 1.5）；0 = DSH 默认
   font: Schema.string().default(''),         // 字体；空 = DSH 默认
   effect: Schema.string().default(''),       // 文字效果：'bold'|'italic'|'underline' 等；空 = 默认
 })
@@ -33,8 +32,8 @@ export const SkinConfig = Schema.object({
 
 const DEFAULT_CONFIG = {
   enabled: true,
-  reply: { color: '', opacity: 1, size: 0, lineHeight: 0, font: '', effect: '' },
-  internal: { color: '', opacity: 1, size: 0, lineHeight: 0, font: '', effect: '' },
+  reply: { color: '', opacity: 1, size: 0, font: '', effect: '' },
+  internal: { color: '', opacity: 1, size: 0, font: '', effect: '' },
 }
 
 export function apply(ctx: any) {

@@ -231,3 +231,19 @@ DSH 对话流条目由父容器 `Md3f7G_column` 的 `gap:16px` 控制间距。�
 ### 验证（实测 DOM）
 - 默认条目间距 16px
 - 设置条目间距 2.0 → 实测 4px ✅ 缩小生效
+
+## 2026-08-30 — 移除条目间距设置（主任：间距设置去掉）
+
+### 需求
+去掉"条目间距/行距"设置。Think 和 Tool/Command 的 DOM 结构不同（Think 嵌在 assistant-step 内，Tool 是独立 flow item），间距控制复杂且不必要，直接移除。
+
+### 改动
+1. 服务端 schema：TextStyle 去掉 lineHeight 字段（reply/internal 都是 5 字段：color/opacity/size/font/effect）
+2. 客户端：删除 buildCss 的负 margin 间距逻辑、renderForm 的"条目间距"控件、步进/输入事件里的 lineHeight 处理
+3. settings.yaml 去掉 lineHeight
+4. 面板 UI 现在只有 5 项：颜色/透明度/字号/字体/文字效果
+
+### 验证
+- schema: reply/internal 各 5 字段，无 lineHeight ✅
+- 面板无"条目间距/行距"控件 ✅
+- 注入 CSS 无 line-height/margin-bottom（皮肤规则）✅

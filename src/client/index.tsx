@@ -27,7 +27,6 @@ interface TextStyle {
   color: string        // CSS 颜色；空 = DSH 默认
   opacity: number      // 透明度 0-1；1 = 不透明
   size: number         // 字号 px；0 = DSH 默认
-  lineHeight: number   // 行距倍率（如 1.5）；0 = DSH 默认
   font: string         // 字体；空 = DSH 默认
   effect: string       // 文字效果：'' | 'bold' | 'italic' | 'underline' | 'bold,italic' ...
 }
@@ -43,7 +42,7 @@ interface SettingsFace {
 
 type CardProps = PropsRuntime<'settings.plugin.item'> & InjectFace<SettingsFace>
 
-const DEFAULT_TEXT: TextStyle = { color: '', opacity: 1, size: 0, lineHeight: 0, font: '', effect: '' }
+const DEFAULT_TEXT: TextStyle = { color: '', opacity: 1, size: 0, font: '', effect: '' }
 
 // ── DSH 默认值（深色主题实测，用于面板初始显示；留空 = 跟随主题变量）──
 const DEFAULTS: Record<string, { color: string; size: number; font: string }> = {
@@ -103,8 +102,6 @@ function styleRule(selector: string, s: TextStyle): string | null {
   if (s.color) parts.push(`color:${s.color} !important`)
   if (s.opacity !== undefined && s.opacity !== 1) parts.push(`opacity:${s.opacity} !important`)
   if (s.size > 0) parts.push(`font-size:${s.size}px !important`)
-  // 注：lineHeight 字段语义 = 条目间距（缩小），在 buildCss 第③段统一输出负 margin，
-  // 不在这里输出 line-height/margin-bottom（那不是主任要的"div 元素间距"）。
   if (s.font && s.font.trim() && s.font !== '系统默认') parts.push(`font-family:"${s.font.trim()}" !important`)
   if (s.effect) {
     const fx = s.effect.split(',')
@@ -118,7 +115,7 @@ function styleRule(selector: string, s: TextStyle): string | null {
 // 判断某个 TextStyle 是否设置了任何项（非全空）
 function hasAnyStyle(s: TextStyle | undefined): boolean {
   if (!s) return false
-  return !!(s.color || s.size > 0 || (s.lineHeight && s.lineHeight > 0) || (s.font && s.font.trim() && s.font !== '系统默认') || s.effect || (s.opacity !== undefined && s.opacity !== 1))
+  return !!(s.color || s.size > 0 || (s.font && s.font.trim() && s.font !== '系统默认') || s.effect || (s.opacity !== undefined && s.opacity !== 1))
 }
 
 function buildCss(settings: SkinSettings): string {
@@ -157,18 +154,6 @@ function buildCss(settings: SkinSettings): string {
   emit(SELECTORS.reply, settings?.reply)
   // ② 内部统一
   emit(SELECTORS.internal, settings?.internal)
-  // ③ 条目间距（缩小）：对 reply 和 internal 的 flow item 都加负 margin，
-  //    压缩 Bash/Write/Think 等条目之间的垂直间距（DSH 默认父容器 gap:16px）。
-  //    只作用于条目节点本身，不放进后代规则（否则每个条目的子元素都被挤）。
-  //    lineHeight 语义：值越大间距越紧凑（1 → -6px，2 → -12px），0 = 保持默认。
-  const applySpacing = (selector: string, style: TextStyle | undefined) => {
-    const spacing = style?.lineHeight
-    if (spacing && spacing > 0) {
-      rules.push(`${selector} { margin-bottom:-${Math.round(spacing * 6)}px !important }`)
-    }
-  }
-  applySpacing(SELECTORS.reply, settings?.reply)
-  applySpacing(SELECTORS.internal, settings?.internal)
 
   return rules.join('\n')
 }
@@ -375,7 +360,6 @@ function renderForm(kind: string): string {
   const effectiveSize = s.size > 0 ? s.size : def.size
   const sizeVal = String(effectiveSize)
   const opacityPct = Math.round((s.opacity ?? 1) * 100)
-  const lineHeightVal = s.lineHeight > 0 ? String(s.lineHeight) : ''
   return `
     <div class="dsh-skinskin-fields">
       <div class="dsh-skinskin-field">
@@ -398,14 +382,6 @@ function renderForm(kind: string): string {
           <button type="button" class="step" data-step="-1" data-field="size" data-kind="${kind}">−</button>
           <input type="number" data-field="size" data-kind="${kind}" value="${sizeVal}" placeholder="默认 ${def.size}" min="0" max="40" />
           <button type="button" class="step" data-step="1" data-field="size" data-kind="${kind}">+</button>
-        </div>
-      </div>
-      <div class="dsh-skinskin-field">
-        <label>条目间距</label>
-        <div class="dsh-skinskin-size-row">
-          <button type="button" class="step" data-step="-0.1" data-field="lineHeight" data-kind="${kind}">−</button>
-          <input type="number" data-field="lineHeight" data-kind="${kind}" value="${lineHeightVal}" placeholder="默认" min="0" max="3" step="0.1" />
-          <button type="button" class="step" data-step="0.1" data-field="lineHeight" data-kind="${kind}">+</button>
         </div>
       </div>
       <div class="dsh-skinskin-field">
@@ -474,29 +450,18 @@ function bindPanelEvents(panel: HTMLElement) {
       panel.innerHTML = renderModal()
       return
     }
-    // 步进（字号 ±1，行距 ±0.1）
+    // 字号步进（基于有效字号：未自定义则用默认字号作基准；允许归零=使用默认）
     if (t.classList.contains('step')) {
       const kind = t.dataset.kind as keyof SkinSettings
-      const field = t.dataset.field as string
       const step = Number(t.dataset.step) || 0
       const s = modalSettings[kind]
-      if (field === 'lineHeight') {
-        const cur = s.lineHeight > 0 ? s.lineHeight : 0
-        const next = Math.round(Math.max(0, Math.min(3, cur + step)) * 10) / 10
-        s.lineHeight = next
-        if (modalSave) modalSave(modalSettings)
-        const input = panel.querySelector<HTMLInputElement>(`input[data-field="lineHeight"][data-kind="${kind}"]`)
-        if (input) input.value = next ? String(next) : ''
-      } else {
-        // 字号步进（基于有效字号：未自定义则用默认字号作基准；允许归零=使用默认）
-        const defSize = defaultSizeFor(kind)
-        const cur = s.size > 0 ? s.size : defSize
-        const next = Math.max(0, Math.min(40, cur + step))
-        s.size = next
-        if (modalSave) modalSave(modalSettings)
-        const input = panel.querySelector<HTMLInputElement>(`input[data-field="size"][data-kind="${kind}"]`)
-        if (input) input.value = next > 0 ? String(next) : String(defSize)
-      }
+      const defSize = defaultSizeFor(kind)
+      const cur = s.size > 0 ? s.size : defSize
+      const next = Math.max(0, Math.min(40, cur + step))
+      s.size = next
+      if (modalSave) modalSave(modalSettings)
+      const input = panel.querySelector<HTMLInputElement>(`input[data-field="size"][data-kind="${kind}"]`)
+      if (input) input.value = next > 0 ? String(next) : String(defSize)
       return
     }
   })
@@ -518,8 +483,6 @@ function bindPanelEvents(panel: HTMLElement) {
       if (picker && /^#[0-9a-fA-F]{6}$/.test(el.value)) picker.value = el.value
     } else if (field === 'size') {
       s.size = Number(el.value) || 0
-    } else if (field === 'lineHeight') {
-      s.lineHeight = Number(el.value) || 0
     } else if (field === 'opacity') {
       s.opacity = Number(el.value) / 100
       const val = panel.querySelector<HTMLSpanElement>(`[data-opacity-val="${kind}"]`)
