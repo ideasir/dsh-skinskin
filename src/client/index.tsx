@@ -103,12 +103,8 @@ function styleRule(selector: string, s: TextStyle): string | null {
   if (s.color) parts.push(`color:${s.color} !important`)
   if (s.opacity !== undefined && s.opacity !== 1) parts.push(`opacity:${s.opacity} !important`)
   if (s.size > 0) parts.push(`font-size:${s.size}px !important`)
-  if (s.lineHeight && s.lineHeight > 0) {
-    parts.push(`line-height:${s.lineHeight} !important`)
-    // 行距：flow item 之间的间距由 margin-bottom 控制（不是 gap，gap 对 flex 子项无效）
-    // 用 em 相对字号，在父容器 gap 基础上额外增加
-    parts.push(`margin-bottom:${s.lineHeight}em !important`)
-  }
+  // 注：lineHeight 字段语义 = 条目间距（缩小），在 buildCss 第③段统一输出负 margin，
+  // 不在这里输出 line-height/margin-bottom（那不是主任要的"div 元素间距"）。
   if (s.font && s.font.trim() && s.font !== '系统默认') parts.push(`font-family:"${s.font.trim()}" !important`)
   if (s.effect) {
     const fx = s.effect.split(',')
@@ -130,21 +126,30 @@ function buildCss(settings: SkinSettings): string {
   // 把逗号分隔的多选择器列表逐个加后缀（A, B, C * 只匹配 C 的后代——CSS 坑）
   const each = (selector: string, suffix: string): string =>
     selector.split(',').map(s => s.trim() + suffix).join(', ')
-  // 对每个 kind 生成：主规则（整行节点）+ 子元素强制 + SVG 图标缩放
+  // 对每个 kind 生成：主规则（整行节点）+ 子元素强制（所有文字属性）+ SVG 图标缩放
   const emit = (selector: string, style: TextStyle | undefined) => {
     if (!style) return
     const main = styleRule(selector, style)
     if (!main) return
     rules.push(main)
-    // 整行生效：所有后代文本也应用字号（子元素自带 font-size 会覆盖继承值）
-    if (style.size > 0) {
-      rules.push(`${each(selector, ' *')} { font-size:${style.size}px !important }`)
-      // SVG 图标随字号缩放
-      rules.push(`${each(selector, ' svg')} { width:${Math.round(style.size * 0.8)}px; height:${Math.round(style.size * 0.8)}px !important }`)
+    // 后代强制规则：只放「文字属性」（颜色/字号/字体/效果/透明度），供子元素覆盖继承用
+    const descParts: string[] = []
+    if (style.color) descParts.push(`color:${style.color} !important`)
+    if (style.size > 0) descParts.push(`font-size:${style.size}px !important`)
+    if (style.font && style.font.trim() && style.font !== '系统默认') descParts.push(`font-family:"${style.font.trim()}" !important`)
+    if (style.effect) {
+      const fx = style.effect.split(',')
+      if (fx.includes('bold')) descParts.push('font-weight:700 !important')
+      if (fx.includes('italic')) descParts.push('font-style:italic !important')
+      if (fx.includes('underline')) descParts.push('text-decoration:underline !important')
     }
-    // 透明度整行生效
-    if (style.opacity !== undefined && style.opacity !== 1) {
-      rules.push(`${each(selector, ' *')} { opacity:${style.opacity} !important }`)
+    if (style.opacity !== undefined && style.opacity !== 1) descParts.push(`opacity:${style.opacity} !important`)
+    if (descParts.length) {
+      rules.push(`${each(selector, ' *')} { ${descParts.join(';')} }`)
+    }
+    // SVG 图标随字号缩放
+    if (style.size > 0) {
+      rules.push(`${each(selector, ' svg')} { width:${Math.round(style.size * 0.8)}px; height:${Math.round(style.size * 0.8)}px !important }`)
     }
   }
 
@@ -152,6 +157,18 @@ function buildCss(settings: SkinSettings): string {
   emit(SELECTORS.reply, settings?.reply)
   // ② 内部统一
   emit(SELECTORS.internal, settings?.internal)
+  // ③ 条目间距（缩小）：对 reply 和 internal 的 flow item 都加负 margin，
+  //    压缩 Bash/Write/Think 等条目之间的垂直间距（DSH 默认父容器 gap:16px）。
+  //    只作用于条目节点本身，不放进后代规则（否则每个条目的子元素都被挤）。
+  //    lineHeight 语义：值越大间距越紧凑（1 → -6px，2 → -12px），0 = 保持默认。
+  const applySpacing = (selector: string, style: TextStyle | undefined) => {
+    const spacing = style?.lineHeight
+    if (spacing && spacing > 0) {
+      rules.push(`${selector} { margin-bottom:-${Math.round(spacing * 6)}px !important }`)
+    }
+  }
+  applySpacing(SELECTORS.reply, settings?.reply)
+  applySpacing(SELECTORS.internal, settings?.internal)
 
   return rules.join('\n')
 }
@@ -204,7 +221,7 @@ const CARD_CSS = `
 .dsh-skinskin-color-row{display:flex;align-items:center;gap:6px}
 .dsh-skinskin-color-row input[type=color]{width:30px;height:30px;border:none;background:none;padding:0;cursor:pointer}
 .dsh-skinskin-size-row{display:flex;align-items:center;gap:2px}
-.dsh-skinskin-size-row input{flex:1;min-width:0;text-align:center}
+.dsh-skinskin-size-row input{flex:1;min-width:52px;text-align:center}
 .dsh-skinskin-size-row .step{width:26px;height:28px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);border-radius:8px;cursor:pointer;font-size:14px;line-height:1;display:grid;place-items:center;transition:background .12s,border-color .12s}
 .dsh-skinskin-size-row .step:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
 .dsh-skinskin-opacity-row{display:flex;align-items:center;gap:8px}
@@ -384,7 +401,7 @@ function renderForm(kind: string): string {
         </div>
       </div>
       <div class="dsh-skinskin-field">
-        <label>行距</label>
+        <label>条目间距</label>
         <div class="dsh-skinskin-size-row">
           <button type="button" class="step" data-step="-0.1" data-field="lineHeight" data-kind="${kind}">−</button>
           <input type="number" data-field="lineHeight" data-kind="${kind}" value="${lineHeightVal}" placeholder="默认" min="0" max="3" step="0.1" />

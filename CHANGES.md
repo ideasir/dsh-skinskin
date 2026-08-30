@@ -212,3 +212,22 @@ styleRule 设置 lineHeight 时输出 `margin-bottom:${lineHeight}em !important`
 - context flow item: margin-bottom = 32px ✅
 - user flow item: margin-bottom = 0px（不在内部选择器，正确）✅
 - 父容器 gap 16px 保留，margin 叠加后间距明显拉开 ✅
+
+## 2026-08-30 — 条目间距缩小（主任修正：div 元素之间间距缩小）
+
+### 需求修正
+主任要的是 Bash/Write/Think 等**条目（div 元素）之间的间距缩小**（更紧凑），不是增大、也不是单行文字行高。
+
+### 根因
+DSH 对话流条目由父容器 `Md3f7G_column` 的 `gap:16px` 控制间距。之前用正 margin-bottom 是增大，方向反了。
+
+### 修复
+1. styleRule 去掉旧的 line-height + margin-bottom 输出
+2. buildCss 第③段：lineHeight 字段语义改为「条目间距（缩小）」，对 reply 和 internal 的 flow item 加**负 margin**：
+   `margin-bottom:-${Math.round(spacing*6)}px !important`（1 → -6px，2 → -12px，0 = 保持默认）
+3. 负 margin 在 flex gap 容器里实测有效（16px → 4px）
+4. 面板 UI 标签从「行距」改为「条目间距」
+
+### 验证（实测 DOM）
+- 默认条目间距 16px
+- 设置条目间距 2.0 → 实测 4px ✅ 缩小生效
