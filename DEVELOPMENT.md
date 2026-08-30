@@ -27,7 +27,6 @@ interface TextStyle {
   color: string        // CSS 颜色；空 = DSH 默认
   opacity: number      // 透明度 0-1；1 = 不透明
   size: number         // 字号 px；0 = DSH 默认
-  lineHeight: number   // 行距倍率（0-3）；0 = DSH 默认
   font: string         // 字体名；空 = DSH 默认
   effect: string       // 文字效果：'bold'|'italic'|'underline'|'bold,italic' 等；空 = 默认
 }
@@ -81,7 +80,8 @@ internal: `[data-chat-flow-kind="assistant-step"] [class*="QWLzlG"], [data-chat-
 - 每个设置项生成 3 条规则：**主规则**（整行节点）+ **子元素强制**（`*` 后代）+ **SVG 图标缩放**（`svg` width/height 按字号×0.8）
 - **全部带 `!important`**（覆盖 DSH 内置样式，注入顺序不可控）
 - **逗号选择器坑**：`A, B, C *` 只有 `C` 被加 `*` —— 用 `each()` 函数逐项展开成 `A *, B *, C *`
-- **行距用 `margin-bottom`**（不是 `gap`）：flow item 是 flex 子项，`gap` 对子项无效，只有容器设置才生效；`margin-bottom` 才能拉开条目间距
+- **子元素强制规则**：只放「文字属性」（颜色/字号/字体/效果/透明度），`margin` 等布局属性不能放进 `*` 后代规则（会让每个条目的内部子元素都被加间距）
+- **颜色必须加 `*` 后代规则**：子元素自带 color 会覆盖继承值，只作用节点本身时内部文字不变色（实测：Think 变色但 Bash 标题不变）
 
 ## 4. 构建
 
@@ -109,14 +109,15 @@ node node_modules/.bin/tsdown
 4. **Think 的 kind 是 assistant-step**：跟回复正文同一个 kind！必须用 `[class*="QWLzlG"]`（ReasoningRow 类）区分思考块，不能靠 kind 单独定位。否则思考被算进"回复信息"。
 5. **回复正文只匹配 `_markdown`**：`assistant-step` 是整行节点，回复正文是其中的 `[class*="_markdown"]` 子元素；如果选择器作用到整个 assistant-step，会把 Think 块也一起改。
 6. **CSS 逗号坑**：`[a], [b] *` 只有 `[b]` 的后代被匹配。多选择器必须逐项展开加后缀。
-7. **`gap` 对 flex 子项无效**：flow item（Tool call/Think 条目）是 flex 列的子项，条间距要用 `margin-bottom`；`gap` 只有写在容器上才生效。这是行距功能三轮才修对的核心坑。
+7. **`gap` 对 flex 子项无效**：flow item（Tool call/Think 条目）是 flex 列的子项，条目间距由容器 `gap` 控制；`margin` 会作用到条目本身但**不能放进 `*` 后代规则**（子元素全被加间距）。条目间距功能因 DOM 结构复杂已移除（2026-08-30）。
 8. **字号步进 `Math.max(1,...)` 卡死**：最小锁 1 就无法回到默认（0=默认）。改成 `Math.max(0,...)`，size=0 时 CSS 不输出 font-size（用 DSH 默认），输入框显示默认字号。
 9. **`!important` 覆盖**：DSH 内置 hash 类名特异性高，注入 CSS 必须带 `!important` 才能生效。
+10. **颜色不生效（只 Think 变色）**：color 只作用节点本身，内部子元素（Bash 标题/摘要）自带 color 覆盖继承——必须加 `*` 后代规则。
 
 ## 7. 验证
 
 改完用无头 Chromium（Playwright）打开 DSH 实测：
 - 样式自动注入：`<style data-plugin="dsh-skinskin">` 存在且内容正确
-- 面板开合、字号步进、行距步进
-- 对话流真实 DOM 的 computed style（fontSize / lineHeight / marginBottom / color）确认生效
+- 面板开合、字号步进
+- 对话流真实 DOM 的 computed style（fontSize / color）确认生效
 - 选择器命中：`querySelector('[data-chat-flow-kind="tool-call"]')` 等
